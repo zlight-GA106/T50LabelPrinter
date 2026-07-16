@@ -1,0 +1,5 @@
+.vs/
+src/T50LabelPrinter/bin/
+src/T50LabelPrinter/obj/
+*.user
+*.suo

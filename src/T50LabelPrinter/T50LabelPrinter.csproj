@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" Condition="false" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{D770DAB0-46BE-45B2-A6A3-A3F963945E40}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>T50LabelPrinter</RootNamespace>
+    <AssemblyName>T50LabelPrinter</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="Supvan.T50PRO.SDK">
+      <HintPath>..\..\SUPVAN.T50PRO.DLL\SUPVAN.T50PRO.DLL\PackageSDK\Supvan.T50PRO.SDK\Supvan.T50PRO.SDK.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="zxing">
+      <HintPath>..\..\SUPVAN.T50PRO.DLL\SUPVAN.T50PRO.DLL\PackageSDK\Supvan.T50PRO.SDK\zxing.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SevenZip">
+      <HintPath>..\..\SUPVAN.T50PRO.DLL\SUPVAN.T50PRO.DLL\PackageSDK\Supvan.T50PRO.SDK\SevenZip.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="FontCatalog.cs" />
+    <Compile Include="DataMatrixRenderer.cs" />
+    <Compile Include="LabelCanvas.cs" />
+    <Compile Include="LabelRenderer.cs" />
+    <Compile Include="MainForm.cs" />
+    <Compile Include="MatrixBitmapRenderer.cs" />
+    <Compile Include="Models.cs" />
+    <Compile Include="Pdf417Renderer.cs" />
+    <Compile Include="PrinterService.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+    <None Include="app.manifest" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="CopyDistributionFiles" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <DistributionDirectory>$(MSBuildProjectDirectory)\..\..\dist\T50LabelPrinter</DistributionDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <DistributionFiles Include="$(TargetPath)" />
+      <DistributionFiles Include="$(TargetPath).config" />
+      <DistributionFiles Include="$(TargetDir)Supvan.T50PRO.SDK.dll" />
+      <DistributionFiles Include="$(TargetDir)zxing.dll" />
+      <DistributionFiles Include="$(TargetDir)SevenZip.dll" />
+      <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\README.md" />
+    </ItemGroup>
+    <MakeDir Directories="$(DistributionDirectory)" />
+    <Copy SourceFiles="@(DistributionFiles)" DestinationFolder="$(DistributionDirectory)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
