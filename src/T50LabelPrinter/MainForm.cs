@@ -203,8 +203,8 @@ namespace T50LabelPrinter
             {
                 Appearance = Appearance.Button,
                 Dock = DockStyle.Right,
-                Width = 112,
-                Text = "✓ 自动刷新",
+                Width = 128,
+                Text = "自动刷新",
                 Checked = true,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Margin = new Padding(4, 2, 0, 2)
@@ -999,7 +999,7 @@ namespace T50LabelPrinter
             }
             _previewTimestamp = DateTime.Now;
             _canvas.PreviewTimestamp = _previewTimestamp;
-            _autoRefresh.Text = _autoRefresh.Checked ? "✓ 自动刷新" : "⏸ 时间已固定";
+            _autoRefresh.Text = _autoRefresh.Checked ? "自动刷新" : "时间已固定";
             UpdateEncodedContent();
         }
 

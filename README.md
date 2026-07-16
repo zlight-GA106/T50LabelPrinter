@@ -2,7 +2,7 @@
 
 这是一个面向硕方 T50 Pro 标签打印机的 Windows 桌面程序，使用原生 WinForms 控件编写，通过 USB 数据线调用硕方提供的 `Supvan.T50PRO.SDK.dll`。项目的目标很直接：在不引入大型界面框架的前提下，完成标签排版、状态查询、条码生成、图片单色化和实际打印。
 
-当前版本：`v1.1.1`
+当前版本：`v1.1.2`
 
 仓库地址：<https://github.com/zlight-GA106/T50LabelPrinter>
 Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
