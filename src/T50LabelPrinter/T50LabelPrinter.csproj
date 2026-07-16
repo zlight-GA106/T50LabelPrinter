@@ -13,6 +13,7 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\dragon.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -73,6 +74,9 @@
   <ItemGroup>
     <None Include="App.config" />
     <None Include="app.manifest" />
+    <EmbeddedResource Include="Assets\dragon.ico">
+      <LogicalName>T50LabelPrinter.dragon.ico</LogicalName>
+    </EmbeddedResource>
     <Content Include="Assets\dragon.png">
       <Link>dragon.png</Link>
       <TargetPath>dragon.png</TargetPath>
@@ -94,6 +98,7 @@
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\README.md" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\LICENSE" />
     </ItemGroup>
+    <RemoveDir Directories="$(DistributionDirectory)" />
     <MakeDir Directories="$(DistributionDirectory)" />
     <Copy SourceFiles="@(DistributionFiles)" DestinationFolder="$(DistributionDirectory)" SkipUnchangedFiles="true" />
   </Target>

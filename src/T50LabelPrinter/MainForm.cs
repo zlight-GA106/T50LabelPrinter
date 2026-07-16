@@ -93,6 +93,21 @@ namespace T50LabelPrinter
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
 
+            using (Icon applicationIcon = LoadApplicationIcon(new Size(32, 32)))
+            {
+                if (applicationIcon != null)
+                {
+                    Icon = (Icon)applicationIcon.Clone();
+                }
+            }
+            using (Icon headerIcon = LoadApplicationIcon(new Size(48, 48)))
+            {
+                if (headerIcon != null)
+                {
+                    _brandImage = headerIcon.ToBitmap();
+                }
+            }
+
             BuildInterface();
             WireEvents();
             LabelDocument initialDocument = LabelDocument.CreateDefault();
@@ -215,7 +230,7 @@ namespace T50LabelPrinter
                 Margin = new Padding(0),
                 Padding = new Padding(0)
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 102f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96f));
@@ -224,12 +239,13 @@ namespace T50LabelPrinter
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
-            _brandImage = LoadBrandImage();
             PictureBox brand = new PictureBox
             {
                 Dock = DockStyle.Fill,
                 Image = _brandImage,
-                SizeMode = PictureBoxSizeMode.Zoom,
+                SizeMode = PictureBoxSizeMode.CenterImage,
+                BorderStyle = BorderStyle.None,
+                BackColor = Color.Transparent,
                 Margin = new Padding(0, 0, 8, 0)
             };
             layout.Controls.Add(brand, 0, 0);
@@ -562,13 +578,10 @@ namespace T50LabelPrinter
             {
                 Dock = DockStyle.Fill,
                 Text = "打印标签",
-                Font = new Font(Font.FontFamily, 11f, FontStyle.Bold),
-                BackColor = Color.FromArgb(31, 111, 235),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
+                FlatStyle = FlatStyle.System,
+                UseVisualStyleBackColor = true,
                 Margin = new Padding(8, 0, 0, 0)
             };
-            _printButton.FlatAppearance.BorderSize = 0;
             _progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Margin = new Padding(0, 5, 0, 0) };
             _printState = new Label
             {
@@ -1625,19 +1638,20 @@ namespace T50LabelPrinter
             _autoRefresh.Enabled = enabled;
         }
 
-        private static Image LoadBrandImage()
+        private static Icon LoadApplicationIcon(Size size)
         {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dragon.png");
-            if (!File.Exists(path))
-            {
-                return null;
-            }
             try
             {
-                using (FileStream stream = File.OpenRead(path))
-                using (Image source = Image.FromStream(stream, true, true))
+                using (Stream stream = typeof(MainForm).Assembly.GetManifestResourceStream("T50LabelPrinter.dragon.ico"))
                 {
-                    return new Bitmap(source);
+                    if (stream == null)
+                    {
+                        return null;
+                    }
+                    using (Icon source = new Icon(stream, size))
+                    {
+                        return (Icon)source.Clone();
+                    }
                 }
             }
             catch (IOException)
