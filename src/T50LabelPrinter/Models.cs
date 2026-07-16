@@ -14,7 +14,9 @@ namespace T50LabelPrinter
         [EnumMember]
         Pdf417 = 1,
         [EnumMember]
-        DataMatrix = 2
+        DataMatrix = 2,
+        [EnumMember]
+        Image = 3
     }
 
     [DataContract]
@@ -78,9 +80,35 @@ namespace T50LabelPrinter
         [DataMember(Order = 15)]
         public string DigitsText { get; set; }
 
+        [DataMember(Order = 16)]
+        public string ImageData { get; set; }
+
+        [DataMember(Order = 17)]
+        public string ImageFileName { get; set; }
+
+        [DataMember(Order = 18)]
+        public int ImageThreshold { get; set; }
+
+        [DataMember(Order = 19)]
+        public bool ImageDither { get; set; }
+
+        [DataMember(Order = 20)]
+        public bool ImageKeepAspect { get; set; }
+
+        [DataMember(Order = 21)]
+        public int ImagePixelWidth { get; set; }
+
+        [DataMember(Order = 22)]
+        public int ImagePixelHeight { get; set; }
+
         public bool IsBarcode
         {
             get { return Kind == LabelElementKind.Pdf417 || Kind == LabelElementKind.DataMatrix; }
+        }
+
+        public bool IsImage
+        {
+            get { return Kind == LabelElementKind.Image; }
         }
 
         public string DisplayName
@@ -94,6 +122,10 @@ namespace T50LabelPrinter
                 if (Kind == LabelElementKind.DataMatrix)
                 {
                     return "Data Matrix  " + (PdfPrefix ?? "").ToUpperInvariant();
+                }
+                if (Kind == LabelElementKind.Image)
+                {
+                    return "图片  " + (string.IsNullOrWhiteSpace(ImageFileName) ? "（未命名）" : ImageFileName);
                 }
 
                 string value = (Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
@@ -192,6 +224,53 @@ namespace T50LabelPrinter
                 PdfPayload = string.Empty,
                 PrintDigits = false,
                 DigitsText = string.Empty
+            };
+        }
+
+        public static LabelElement CreateImage(
+            decimal labelWidth,
+            decimal labelHeight,
+            string imageData,
+            string fileName,
+            int pixelWidth,
+            int pixelHeight)
+        {
+            decimal maxWidth = Math.Max(5m, labelWidth - 4m);
+            decimal maxHeight = Math.Max(5m, labelHeight - 4m);
+            decimal aspect = pixelWidth > 0 && pixelHeight > 0
+                ? (decimal)pixelWidth / pixelHeight
+                : 1m;
+            decimal width = Math.Min(30m, maxWidth);
+            decimal height = width / Math.Max(0.01m, aspect);
+            if (height > maxHeight)
+            {
+                height = maxHeight;
+                width = height * aspect;
+            }
+
+            return new LabelElement
+            {
+                Kind = LabelElementKind.Image,
+                X = Math.Max(0m, (labelWidth - width) / 2m),
+                Y = Math.Max(0m, (labelHeight - height) / 2m),
+                Width = Math.Max(1m, width),
+                Height = Math.Max(1m, height),
+                Text = string.Empty,
+                FontFamily = FontCatalog.DefaultSansFamily,
+                FontSizeMm = 3m,
+                Align = 1,
+                PdfPrefix = "ABC",
+                PdfUseTimestamp = true,
+                PdfPayload = string.Empty,
+                PrintDigits = false,
+                DigitsText = string.Empty,
+                ImageData = imageData,
+                ImageFileName = fileName,
+                ImageThreshold = 128,
+                ImageDither = true,
+                ImageKeepAspect = true,
+                ImagePixelWidth = Math.Max(1, pixelWidth),
+                ImagePixelHeight = Math.Max(1, pixelHeight)
             };
         }
     }
@@ -314,6 +393,12 @@ namespace T50LabelPrinter
                     element.PdfPrefix = "ABC";
                 }
                 element.DigitsText = new string((element.DigitsText ?? string.Empty).Where(char.IsDigit).ToArray());
+                element.ImageThreshold = Math.Max(0, Math.Min(255, element.ImageThreshold));
+                if (element.IsImage)
+                {
+                    element.ImagePixelWidth = Math.Max(1, element.ImagePixelWidth);
+                    element.ImagePixelHeight = Math.Max(1, element.ImagePixelHeight);
+                }
                 ClampElement(element);
             }
         }

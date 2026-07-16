@@ -1,5 +1,11 @@
 .vs/
 src/T50LabelPrinter/bin/
 src/T50LabelPrinter/obj/
+[Bb]in/
+[Oo]bj/
 *.user
 *.suo
+.remote-main/
+dist/
+*.zip
+*.rar

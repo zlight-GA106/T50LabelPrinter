@@ -44,6 +44,10 @@ namespace T50LabelPrinter
                     {
                         DrawText(graphics, element, rectangle, dotsPerMm);
                     }
+                    else if (element.IsImage)
+                    {
+                        DrawImportedImage(graphics, element, rectangle);
+                    }
                     else
                     {
                         DrawBarcode(graphics, element, timestamp, rectangle, dotsPerMm);
@@ -73,6 +77,10 @@ namespace T50LabelPrinter
                 if (element.Kind == LabelElementKind.Text)
                 {
                     DrawText(graphics, element, rectangle, dotsPerMm);
+                }
+                else if (element.IsImage)
+                {
+                    DrawImportedImage(graphics, element, rectangle);
                 }
                 else
                 {
@@ -210,6 +218,34 @@ namespace T50LabelPrinter
                     format.Trimming = StringTrimming.EllipsisCharacter;
                     graphics.DrawString(digits, font, Brushes.Black, digitsRectangle, format);
                 }
+            }
+        }
+
+        private static void DrawImportedImage(Graphics graphics, LabelElement element, RectangleF rectangle)
+        {
+            int width = Math.Max(1, (int)Math.Round(rectangle.Width));
+            int height = Math.Max(1, (int)Math.Round(rectangle.Height));
+            using (Bitmap image = ImageAssetService.CreateMonochromeBitmap(element, width, height))
+            {
+                if (image == null)
+                {
+                    graphics.DrawRectangle(Pens.Black, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                    using (StringFormat format = new StringFormat())
+                    {
+                        format.Alignment = StringAlignment.Center;
+                        format.LineAlignment = StringAlignment.Center;
+                        graphics.DrawString("图片无效", SystemFonts.DefaultFont, Brushes.Black, rectangle, format);
+                    }
+                    return;
+                }
+
+                InterpolationMode previous = graphics.InterpolationMode;
+                PixelOffsetMode previousPixelOffset = graphics.PixelOffsetMode;
+                graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+                graphics.PixelOffsetMode = PixelOffsetMode.Half;
+                graphics.DrawImage(image, rectangle);
+                graphics.InterpolationMode = previous;
+                graphics.PixelOffsetMode = previousPixelOffset;
             }
         }
     }

@@ -57,7 +57,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="FontCatalog.cs" />
+    <Compile Include="ApplicationSettingsStore.cs" />
     <Compile Include="DataMatrixRenderer.cs" />
+    <Compile Include="ImageAssetService.cs" />
     <Compile Include="LabelCanvas.cs" />
     <Compile Include="LabelRenderer.cs" />
     <Compile Include="MainForm.cs" />
@@ -71,6 +73,11 @@
   <ItemGroup>
     <None Include="App.config" />
     <None Include="app.manifest" />
+    <Content Include="Assets\dragon.png">
+      <Link>dragon.png</Link>
+      <TargetPath>dragon.png</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="CopyDistributionFiles" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
@@ -83,7 +90,9 @@
       <DistributionFiles Include="$(TargetDir)Supvan.T50PRO.SDK.dll" />
       <DistributionFiles Include="$(TargetDir)zxing.dll" />
       <DistributionFiles Include="$(TargetDir)SevenZip.dll" />
+      <DistributionFiles Include="$(TargetDir)dragon.png" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\README.md" />
+      <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\LICENSE" />
     </ItemGroup>
     <MakeDir Directories="$(DistributionDirectory)" />
     <Copy SourceFiles="@(DistributionFiles)" DestinationFolder="$(DistributionDirectory)" SkipUnchangedFiles="true" />

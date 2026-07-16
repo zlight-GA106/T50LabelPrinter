@@ -1,62 +1,146 @@
 # 硕方t50pro打印上位机
 
-这是一个单窗体、低依赖的 Windows 标签编辑和打印程序。界面使用 .NET Framework 4.8 WinForms（标准 Win32 控件），USB 通讯和打印使用用户提供的 `Supvan.T50PRO.SDK.dll`。
+这是一个面向硕方 T50 Pro 标签打印机的 Windows 桌面程序，使用原生 WinForms 控件编写，通过 USB 数据线调用硕方提供的 `Supvan.T50PRO.SDK.dll`。项目的目标很直接：在不引入大型界面框架的前提下，完成标签排版、状态查询、条码生成、图片单色化和实际打印。
 
-## 已实现功能
+当前版本：`v1.1.0`
 
-- 枚举 USB 连接的 T50 Pro、查询打印机状态和错误信息。
-- 在底部 SDK 状态栏完整显示 `State`、`PrintDes`、`ErrorMsg`、已打印页数和总页数。
-- 自定义标签宽高；标签宽度在模型和界面中均强制限制为 `5–50 mm`。
-- 支持间隙纸、中间黑标、黑标卡纸、打印方向、速度、0–9 档浓度、份数和逐份打印。
-- 画布中添加多个文字、PDF417 或 Data Matrix 对象；支持平滑拖动、右下角缩放点和精确的 X/Y/宽/高数值编辑。
-- 文字对象支持在画布中双击快速编辑；`Enter` 提交、`Shift+Enter` 换行、`Esc` 取消。
-- 文字默认提供“思源黑体 / Noto Sans SC”和“思源宋体 / Noto Serif SC”，同时可选择本机安装的其他字体。
-- PDF417 与 Data Matrix 的内容均为“3 位英文字母头 + 字符串”；自动时间模式使用 `yyyyMMddHHmmss`，精确到秒，也可关闭自动时间并输入自定义字符串。
-- 条码可统一选择打印或不打印；每个条码可独立选择是否附印数位码，并可输入自定义纯数字内容。
-- 两种条码均可自由调整大小，打印和预览使用同一套 ZXing 渲染结果。
-- 支持垂直、水平、十字居中辅助线；辅助线可仅用于预览，也可选择印到异形标签上。
-- 保存/打开 `.t50label` 模板，导出 203 dpi 打印预览 PNG。
+仓库地址：<https://github.com/zlight-GA106/T50LabelPrinter>
+Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
 
-## 直接运行
+## 功能
 
-Release 成品位于：
+- 枚举通过 USB 连接的 T50 Pro，并显示设备是否就绪。
+- 显示 SDK 返回的 `State`、`PrintDes`、`ErrorMsg`、已打印页数和总页数。
+- 自定义标签宽度、高度和纸张间隙，标签宽度强制限制为 `5–50 mm`。
+- 支持间隙纸、中间黑标、黑标卡纸、四种打印方向、打印速度、0–9 档浓度、份数和逐份打印。
+- 标签宽度、高度、间隙和打印方向可以保存为当前 Windows 用户的启动默认值。
+- 标签中可以混排文字、PDF417、Data Matrix 和图片。
+- 文字支持思源黑体、思源宋体及本机其他字体；在画布中双击文字可以直接编辑。
+- PDF417 和 Data Matrix 使用“3 位英文字母头 + 字符串”作为编码内容。
+- 时间码格式为 `yyyyMMddHHmmss`，精确到秒。关闭“自动刷新”后，预览、导出和下一次打印都会使用固定下来的时间码。
+- 可以统一选择是否打印条码，也可以为每个条码附印自定义纯数字数位码。
+- 支持导入 PNG、JPG/JPEG、BMP、GIF 和 TIFF；图片会嵌入模板，打印前转换为纯黑白，可调整尺寸、阈值和 Floyd–Steinberg 抖动。
+- 支持垂直中心线、水平中心线和十字中心线。辅助线可以只用于定位，也可以实际印到异形标签上。
+- 支持保存和打开 `.t50label` 模板，支持导出 8 点/mm（约 203 dpi）的 PNG 打印预览。
+
+## 运行
+
+从 Release 下载 ZIP 后解压，运行：
 
 ```text
-dist\T50LabelPrinter\T50LabelPrinter.exe
+T50LabelPrinter.exe
 ```
 
-运行环境：Windows 10/11、.NET Framework 4.8。请保持 EXE 与以下三个 DLL 在同一目录：
+请不要只复制 EXE。以下文件需要与 EXE 放在同一目录：
 
 ```text
+T50LabelPrinter.exe.config
 Supvan.T50PRO.SDK.dll
-zxing.dll
 SevenZip.dll
+zxing.dll
+dragon.png
 ```
 
-连接打印机后打开电源，单击“刷新设备”，选择 USB 设备路径并查询状态。只有 SDK 返回“就绪”时程序才会发送打印任务。个别 SDK 版本会在打印机已正常出纸时让 `DoPrint` 返回 `false`；程序不会据此直接误报失败，而会继续读取设备状态、打印描述与页数，以设备最终状态为准。
+运行环境为 Windows 10/11 和 .NET Framework 4.8。程序不需要安装，解压后即可运行。
 
-## 字体说明
+## 第一次打印
 
-本机已安装 `Noto Sans SC` 和 `Noto Serif SC`，它们分别是思源黑体和思源宋体的 Noto 发行名称。程序会优先使用这两个字体；换到其他电脑时，请先安装思源黑体/思源宋体或 Noto Sans SC/Noto Serif SC。若所选字体不存在，程序会退回到可用的中文无衬线字体。
+1. 用 USB 数据线连接 T50 Pro，打开打印机电源并装好耗材。
+2. 启动程序，单击“刷新设备”。
+3. 在“USB 打印机”下拉框中选择设备，确认状态为“就绪”。
+4. 在“标签与纸张”中设置标签尺寸、纸张类型、打印方向、速度和浓度。
+5. 在“标签内容”中添加文字或条码，或者在“图片导入”中导入图片。
+6. 在右侧预览区拖动元素；拖动右下角蓝点可以缩放。
+7. 单击“打印标签”，观察底部应用状态和 SDK 状态栏。
+
+不同耗材的黑标位置、间隙和显色效果可能不同。第一次使用某种标签纸时，建议先以低浓度打印一张测试标签，再逐步调整。
+
+## 编辑操作
+
+- 单击元素：选中。
+- 拖动元素：调整位置。
+- 拖动右下角蓝点：调整大小。
+- 双击文字：原位编辑；`Enter` 提交，`Shift+Enter` 换行，`Esc` 取消。
+- 画布获得焦点后按 `Delete`：删除当前元素。
+- 数值输入框：精确调整 X、Y、宽度和高度。
+
+图片在预览和打印阶段使用同一套单色转换逻辑。启用抖动适合照片和渐变图；关闭抖动更适合线稿、Logo 和已经处理好的黑白图。
+
+## 自动刷新和固定时间码
+
+“自动刷新”默认开启，预览中的自动时间码每秒更新。取消勾选时，程序会记录取消时刻：
+
+- 画布预览保持该时间不变；
+- “实际编码”保持不变；
+- 导出的 PNG 使用该时间；
+- 下一次打印也使用该时间。
+
+重新开启后，时间码立即恢复为当前时间。
+
+## 模板和本地设置
+
+`.t50label` 是 JSON 格式的便携模板。导入图片会以 PNG/Base64 形式嵌入模板，因此把模板复制到另一台电脑时不需要再附带原图片。图片较大时，模板文件也会相应变大。
+
+勾选“设为默认”后，纸张默认值保存在：
+
+```text
+%LOCALAPPDATA%\T50LabelPrinter\paper-defaults.json
+```
+
+取消勾选会删除这份默认设置。模板中的纸张参数仍然以模板自身保存的内容为准。
+
+## SDK 返回值说明
+
+部分版本的 T50 Pro SDK 存在一种情况：`DoPrint` 返回 `false`，但打印机实际上已经正常出纸。程序不会仅凭这个布尔值判定失败，而会继续查询设备状态，并结合以下信息确认结果：
+
+- `State` 是否为完成状态；
+- `PrintDes` 是否包含完成或成功描述；
+- `DevPrintedPageCount` 是否达到 `PrintPageTotalCount`；
+- `ErrorMsg` 是否存在明确错误。
+
+如果 SDK 没有给出最终确认，程序会在状态栏提示“以出纸结果和状态栏为准”，不会再弹出误导性的“SDK 未接受打印任务”。
+
+某些 SDK 版本在窗口关闭后仍会留下工作线程。本程序是单窗体工具，关闭主窗口时会停止刷新计时器并结束进程，避免 EXE 长时间被旧进程占用。
 
 ## 编译
 
-使用 Visual Studio 2022/2026 或 Developer PowerShell：
+项目使用 .NET Framework 4.8，推荐用 Visual Studio 打开 `T50LabelPrinter.sln`。也可以在仓库根目录执行：
 
 ```powershell
-msbuild T50LabelPrinter.sln /t:Rebuild /p:Configuration=Release
+dotnet msbuild T50LabelPrinter.sln /t:Rebuild /p:Configuration=Release
 ```
 
-项目通过相对路径引用原始 SDK：
+Release 构建完成后，程序和运行依赖会复制到：
+
+```text
+dist\T50LabelPrinter
+```
+
+项目通过相对路径引用仓库内的硕方 SDK：
 
 ```text
 SUPVAN.T50PRO.DLL\SUPVAN.T50PRO.DLL\PackageSDK\Supvan.T50PRO.SDK
 ```
 
-Release 编译后会自动把可执行文件、三个依赖 DLL 和本说明复制到 `dist\T50LabelPrinter`。
+主要代码分工：
 
-## 设备限制
+```text
+MainForm.cs                  窗体、状态与用户操作
+LabelCanvas.cs               画布选择、拖拽、缩放和快捷编辑
+LabelRenderer.cs             标签统一渲染
+Models.cs                    模板数据模型
+PrinterService.cs            T50 Pro SDK 适配
+ImageAssetService.cs         图片嵌入、缩放和单色转换
+ApplicationSettingsStore.cs  当前用户的纸张默认值
+```
 
-SDK 定义打印头为 8 点/mm、`MaxDotValue = 384`，本项目沿用官方示例的 50 mm 纸宽和该点数设置。USB 调用全部在后台线程执行，避免阻塞界面。
+## 说明
 
-已完成 Release 编译、PDF417/Data Matrix 预览生成、条码开关、附加数位码、双击编辑、模板兼容与界面排版检查。打印方向、浓度和异形标签辅助线的最终效果仍建议按实际耗材各打样一张确认。
+- 打印头按 SDK 定义使用 8 点/mm，`MaxDotValue` 为 384。
+- 文字、条码和图片先合成为整张标签位图，再作为一个 SDK `IMAGE` 对象发送，屏幕预览和打印结果使用同一渲染路径。
+- 本项目包含硕方 SDK 的引用和示例资料；相关 DLL、文档及商标权利归原权利人所有。公开分发前请自行确认厂商授权范围。
+- 图片和字体的最终效果会受到耗材、浓度、打印头状态和实际安装字体影响，重要标签应先打样确认。
+
+## License
+
+本项目采用 [GNU Affero General Public License v3.0](LICENSE)。

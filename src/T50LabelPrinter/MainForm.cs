@@ -21,6 +21,9 @@ namespace T50LabelPrinter
         private bool _loading;
         private bool _statusBusy;
         private bool _isPrinting;
+        private bool _syncingImageSize;
+        private DateTime _previewTimestamp = DateTime.Now;
+        private Image _brandImage;
 
         private ComboBox _devicePaths;
         private Button _scanButton;
@@ -43,6 +46,7 @@ namespace T50LabelPrinter
         private ComboBox _guideMode;
         private CheckBox _printGuide;
         private NumericUpDown _guideThickness;
+        private CheckBox _savePaperDefaults;
 
         private ListBox _elementList;
         private Label _elementKind;
@@ -63,6 +67,15 @@ namespace T50LabelPrinter
         private TextBox _digitsText;
         private Label _pdfEncodedContent;
 
+        private TabPage _imageTab;
+        private NumericUpDown _imageWidth;
+        private NumericUpDown _imageHeight;
+        private NumericUpDown _imageThreshold;
+        private CheckBox _imageDither;
+        private CheckBox _imageKeepAspect;
+        private Label _imageInfo;
+        private CheckBox _autoRefresh;
+
         private Button _printButton;
         private ProgressBar _progress;
         private Label _printState;
@@ -70,7 +83,7 @@ namespace T50LabelPrinter
 
         public MainForm()
         {
-            Text = "硕方t50pro打印上位机";
+            Text = "硕方t50pro打印上位机（by zlight106）";
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(900, 640);
             Rectangle workingArea = Screen.PrimaryScreen.WorkingArea;
@@ -82,13 +95,29 @@ namespace T50LabelPrinter
 
             BuildInterface();
             WireEvents();
-            LoadDocument(LabelDocument.CreateDefault());
+            LabelDocument initialDocument = LabelDocument.CreateDefault();
+            PaperDefaults paperDefaults;
+            bool hasPaperDefaults = ApplicationSettingsStore.TryLoad(out paperDefaults);
+            if (hasPaperDefaults)
+            {
+                paperDefaults.ApplyTo(initialDocument);
+            }
+            LoadDocument(initialDocument);
+            _loading = true;
+            _savePaperDefaults.Checked = hasPaperDefaults;
+            UpdatePaperDefaultsText();
+            _loading = false;
+            _canvas.PreviewTimestamp = _previewTimestamp;
 
             _timer.Interval = 1000;
             _timer.Tick += async (sender, args) =>
             {
-                UpdateEncodedContent();
-                _canvas.Invalidate();
+                if (_autoRefresh.Checked)
+                {
+                    _previewTimestamp = DateTime.Now;
+                    _canvas.PreviewTimestamp = _previewTimestamp;
+                    UpdateEncodedContent();
+                }
                 if (_isPrinting)
                 {
                     await QueryStatusAsync(false);
@@ -97,6 +126,17 @@ namespace T50LabelPrinter
             _timer.Start();
 
             Shown += async (sender, args) => await ScanDevicesAsync();
+            FormClosed += (sender, args) =>
+            {
+                _timer.Stop();
+                if (_brandImage != null)
+                {
+                    _brandImage.Dispose();
+                    _brandImage = null;
+                }
+                // SDK 的部分版本会保留工作线程。程序是单窗体工具，主窗体关闭后应立即退出进程。
+                Environment.Exit(0);
+            };
         }
 
         private void BuildInterface()
@@ -132,20 +172,33 @@ namespace T50LabelPrinter
             _tabs.TabPages.Add(CreateLabelTab());
             _tabs.TabPages.Add(CreateElementTab());
             _tabs.TabPages.Add(CreateFileTab());
+            _tabs.TabPages.Add(CreateImageTab());
             split.Panel1.Controls.Add(_tabs);
 
             Panel previewPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+            Panel previewHeader = new Panel { Dock = DockStyle.Top, Height = 34 };
             Label previewTitle = new Label
             {
-                Dock = DockStyle.Top,
-                Height = 32,
+                Dock = DockStyle.Fill,
                 Text = "标签预览（拖动对象；拖右下角蓝点缩放；双击文字快速编辑）",
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = new Font(Font, FontStyle.Bold)
             };
+            _autoRefresh = new CheckBox
+            {
+                Appearance = Appearance.Button,
+                Dock = DockStyle.Right,
+                Width = 112,
+                Text = "✓ 自动刷新",
+                Checked = true,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Margin = new Padding(4, 2, 0, 2)
+            };
+            previewHeader.Controls.Add(previewTitle);
+            previewHeader.Controls.Add(_autoRefresh);
             _canvas = new LabelCanvas { Dock = DockStyle.Fill };
             previewPanel.Controls.Add(_canvas);
-            previewPanel.Controls.Add(previewTitle);
+            previewPanel.Controls.Add(previewHeader);
             split.Panel2.Controls.Add(previewPanel);
 
             root.Controls.Add(CreatePrintPanel(), 0, 2);
@@ -153,43 +206,76 @@ namespace T50LabelPrinter
 
         private Control CreateDevicePanel()
         {
-            Panel panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 8, 10, 5), BackColor = Color.White };
-            FlowLayoutPanel line = new FlowLayoutPanel
+            Panel panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 6, 10, 5), BackColor = Color.White };
+            TableLayoutPanel layout = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
-                Height = 35,
-                WrapContents = false,
-                FlowDirection = FlowDirection.LeftToRight
+                Dock = DockStyle.Fill,
+                ColumnCount = 6,
+                RowCount = 2,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
             };
-            line.Controls.Add(new Label { Text = "USB 设备", Width = 68, Height = 28, TextAlign = ContentAlignment.MiddleLeft });
-            _devicePaths = new ComboBox { Width = 480, DropDownStyle = ComboBoxStyle.DropDownList };
-            _scanButton = new Button { Text = "刷新设备", Width = 92, Height = 28 };
-            _queryButton = new Button { Text = "查询状态", Width = 92, Height = 28 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 102f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 122f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            _brandImage = LoadBrandImage();
+            PictureBox brand = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                Image = _brandImage,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Margin = new Padding(0, 0, 8, 0)
+            };
+            layout.Controls.Add(brand, 0, 0);
+            layout.SetRowSpan(brand, 2);
+            layout.Controls.Add(new Label
+            {
+                Text = "USB 打印机",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 0, 4, 2)
+            }, 1, 0);
+
+            _devicePaths = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Margin = new Padding(0, 3, 6, 3)
+            };
+            _scanButton = new Button { Text = "刷新设备", Dock = DockStyle.Fill, Margin = new Padding(0, 1, 6, 3) };
+            _queryButton = new Button { Text = "查询状态", Dock = DockStyle.Fill, Margin = new Padding(0, 1, 6, 3) };
             _deviceState = new Label
             {
                 Text = "未查询",
-                AutoSize = false,
-                Width = 120,
-                Height = 28,
+                Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,
                 BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.Gainsboro
+                BackColor = Color.Gainsboro,
+                Margin = new Padding(0, 2, 0, 4)
             };
-            line.Controls.Add(_devicePaths);
-            line.Controls.Add(_scanButton);
-            line.Controls.Add(_queryButton);
-            line.Controls.Add(_deviceState);
+            layout.Controls.Add(_devicePaths, 2, 0);
+            layout.Controls.Add(_scanButton, 3, 0);
+            layout.Controls.Add(_queryButton, 4, 0);
+            layout.Controls.Add(_deviceState, 5, 0);
 
             _deviceDetail = new Label
             {
-                Dock = DockStyle.Bottom,
-                Height = 25,
+                Dock = DockStyle.Fill,
                 Text = "请连接 T50 Pro USB 数据线并打开打印机。",
                 ForeColor = Color.DimGray,
-                AutoEllipsis = true
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 0, 0, 0)
             };
-            panel.Controls.Add(_deviceDetail);
-            panel.Controls.Add(line);
+            layout.Controls.Add(_deviceDetail, 1, 1);
+            layout.SetColumnSpan(_deviceDetail, 5);
+            panel.Controls.Add(layout);
             return panel;
         }
 
@@ -204,6 +290,12 @@ namespace T50LabelPrinter
             _gap = CreateNumeric(0m, 20m, 3m, 1m, 0);
             _paperType = CreateCombo("间隙纸", "中间黑标", "黑标卡纸");
             _direction = CreateCombo("向上打印", "向下打印", "向左打印", "向右打印");
+            _savePaperDefaults = new CheckBox
+            {
+                Text = "设为默认",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
             _speed = CreateNumeric(20m, 60m, 40m, 5m, 0);
             _deepness = CreateCombo("0 - 最淡", "1", "2", "3", "4 - 标准", "5", "6", "7", "8", "9 - 最深");
             _copies = CreateNumeric(1m, 99m, 1m, 1m, 0);
@@ -217,6 +309,7 @@ namespace T50LabelPrinter
             AddPropertyRow(table, "纸张间隙 (mm)", _gap);
             AddPropertyRow(table, "纸张类型", _paperType);
             AddPropertyRow(table, "打印方向", _direction);
+            AddPropertyRow(table, "启动默认值", _savePaperDefaults);
             AddPropertyRow(table, "速度 (mm/s)", _speed);
             AddPropertyRow(table, "打印浓度", _deepness);
             AddPropertyRow(table, "打印份数", _copies);
@@ -227,14 +320,16 @@ namespace T50LabelPrinter
 
             Label widthHint = new Label
             {
-                Text = "T50 Pro 标签宽度已限制为不超过 50 mm。辅助线始终在预览中显示；勾选“打印辅助线”后才会印出。",
+                Text = "T50 Pro 标签宽度限制为 5–50 mm。勾选“设为默认”会保存宽度、高度、间隙和打印方向。辅助线始终在预览中显示，仅在勾选“打印辅助线”后印到标签上。",
                 Dock = DockStyle.Fill,
-                AutoSize = true,
-                MaximumSize = new Size(330, 0),
+                AutoSize = false,
                 ForeColor = Color.Firebrick,
-                Padding = new Padding(0, 8, 0, 8)
+                BackColor = Color.FromArgb(255, 247, 247),
+                BorderStyle = BorderStyle.FixedSingle,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(8)
             };
-            AddWideRow(table, widthHint, 58f);
+            AddWideRow(table, widthHint, 92f);
 
             scroll.Controls.Add(table);
             tab.Controls.Add(scroll);
@@ -364,8 +459,9 @@ namespace T50LabelPrinter
                 AutoSize = false,
                 TextAlign = ContentAlignment.TopLeft,
                 Padding = new Padding(0, 8, 0, 0),
-                Text = "模板文件保存标签尺寸、纸张参数、文字、PDF417 与 Data Matrix 对象。\r\n\r\n" +
+                Text = "模板文件保存标签尺寸、纸张参数、文字、条码和已导入图片。\r\n\r\n" +
                        "条码可统一关闭；每个条码还可选择是否附印数位码。\r\n\r\n" +
+                       "关闭“自动刷新”后，预览与打印会继续使用当前固定时间码。\r\n\r\n" +
                        "自动时间格式：yyyyMMddHHmmss，例如 ABC20260716153042。\r\n\r\n" +
                        "打印预览按设备的 8 点/mm（约 203 dpi）输出。",
                 ForeColor = Color.DimGray
@@ -373,6 +469,77 @@ namespace T50LabelPrinter
             layout.Controls.Add(note, 0, 1);
             tab.Controls.Add(layout);
             return tab;
+        }
+
+        private TabPage CreateImageTab()
+        {
+            _imageTab = new TabPage("图片导入") { Padding = new Padding(8) };
+            TableLayoutPanel root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48f));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            FlowLayoutPanel tools = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false
+            };
+            Button import = new Button { Text = "导入图片…", Width = 118, Height = 32 };
+            Button delete = new Button { Text = "删除当前图片", Width = 126, Height = 32 };
+            import.Click += (sender, args) => ImportImage();
+            delete.Click += (sender, args) =>
+            {
+                if (_canvas.SelectedElement != null && _canvas.SelectedElement.IsImage)
+                {
+                    DeleteSelectedElement();
+                }
+            };
+            tools.Controls.Add(import);
+            tools.Controls.Add(delete);
+            root.Controls.Add(tools, 0, 0);
+
+            Panel scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            TableLayoutPanel table = CreatePropertyTable();
+            _imageInfo = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "尚未选择图片",
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+            _imageWidth = CreateNumeric(1m, 200m, 20m, 0.1m, 1);
+            _imageHeight = CreateNumeric(1m, 200m, 20m, 0.1m, 1);
+            _imageKeepAspect = new CheckBox { Text = "保持原图比例", Dock = DockStyle.Fill, Checked = true };
+            _imageThreshold = CreateNumeric(0m, 255m, 128m, 1m, 0);
+            _imageDither = new CheckBox { Text = "启用抖动（适合照片）", Dock = DockStyle.Fill, Checked = true };
+
+            AddPropertyRow(table, "当前图片", _imageInfo, 48f);
+            AddPropertyRow(table, "图片宽度 (mm)", _imageWidth);
+            AddPropertyRow(table, "图片高度 (mm)", _imageHeight);
+            AddPropertyRow(table, "缩放方式", _imageKeepAspect);
+            AddPropertyRow(table, "黑白阈值", _imageThreshold);
+            AddPropertyRow(table, "单色处理", _imageDither);
+            Label hint = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = false,
+                TextAlign = ContentAlignment.TopLeft,
+                ForeColor = Color.DimGray,
+                Padding = new Padding(4, 8, 4, 4),
+                Text = "支持 PNG、JPG/JPEG、BMP、GIF 和 TIFF。导入后图片会嵌入模板，打印与预览都转换为纯黑白。可在此输入宽高，也可在画布中拖动右下角蓝点缩放。"
+            };
+            AddWideRow(table, hint, 94f);
+            scroll.Controls.Add(table);
+            root.Controls.Add(scroll, 0, 1);
+            _imageTab.Controls.Add(root);
+            return _imageTab;
         }
 
         private Control CreatePrintPanel()
@@ -453,6 +620,7 @@ namespace T50LabelPrinter
             _guideMode.SelectedIndexChanged += SettingsChanged;
             _printGuide.CheckedChanged += SettingsChanged;
             _guideThickness.ValueChanged += SettingsChanged;
+            _savePaperDefaults.CheckedChanged += PaperDefaultsChanged;
 
             _elementList.SelectedIndexChanged += (sender, args) =>
             {
@@ -467,12 +635,15 @@ namespace T50LabelPrinter
                 _elementList.SelectedItem = _canvas.SelectedElement;
                 _loading = false;
                 LoadSelectedElement();
+                LoadSelectedImage();
             };
             _canvas.DocumentChanged += (sender, args) =>
             {
                 LoadSelectedElement();
+                LoadSelectedImage();
                 _elementList.Invalidate();
             };
+            _canvas.DeleteRequested += (sender, args) => DeleteSelectedElement();
 
             _elementX.ValueChanged += ElementPropertyChanged;
             _elementY.ValueChanged += ElementPropertyChanged;
@@ -488,6 +659,12 @@ namespace T50LabelPrinter
             _printDigits.CheckedChanged += ElementPropertyChanged;
             _digitsText.TextChanged += ElementPropertyChanged;
             _pdfPrefix.TextChanged += PdfPrefixChanged;
+            _imageWidth.ValueChanged += ImagePropertyChanged;
+            _imageHeight.ValueChanged += ImagePropertyChanged;
+            _imageThreshold.ValueChanged += ImagePropertyChanged;
+            _imageDither.CheckedChanged += ImagePropertyChanged;
+            _imageKeepAspect.CheckedChanged += ImagePropertyChanged;
+            _autoRefresh.CheckedChanged += AutoRefreshChanged;
             _printBarcodesToggle.CheckedChanged += (sender, args) =>
             {
                 if (_loading || _document == null)
@@ -509,7 +686,7 @@ namespace T50LabelPrinter
             }
 
             string previous = GetSelectedDevice();
-            SetDeviceUiBusy(true, "正在搜索 USB 设备…");
+            SetDeviceUiBusy(true, "正在搜索 USB 打印机…");
             try
             {
                 IList<string> paths = await Task.Run(() => _printer.GetDevicePaths());
@@ -633,7 +810,7 @@ namespace T50LabelPrinter
             SetEditingEnabled(false);
             _progress.Style = ProgressBarStyle.Marquee;
             _printState.Text = "应用状态：正在生成并发送标签数据…";
-            DateTime timestamp = DateTime.Now;
+            DateTime timestamp = _autoRefresh.Checked ? DateTime.Now : _previewTimestamp;
 
             try
             {
@@ -731,7 +908,130 @@ namespace T50LabelPrinter
                 _document.ClampElement(element);
             }
             LoadSelectedElement();
+            LoadSelectedImage();
             _canvas.Invalidate();
+            if (_savePaperDefaults.Checked)
+            {
+                try
+                {
+                    SavePaperDefaults();
+                }
+                catch (IOException exception)
+                {
+                    _printState.Text = "应用状态：无法保存默认纸张参数 — " + exception.Message;
+                }
+                catch (UnauthorizedAccessException exception)
+                {
+                    _printState.Text = "应用状态：无法保存默认纸张参数 — " + exception.Message;
+                }
+            }
+        }
+
+        private void PaperDefaultsChanged(object sender, EventArgs args)
+        {
+            if (_loading)
+            {
+                return;
+            }
+            try
+            {
+                if (_savePaperDefaults.Checked)
+                {
+                    SavePaperDefaults();
+                }
+                else
+                {
+                    ApplicationSettingsStore.Clear();
+                }
+                UpdatePaperDefaultsText();
+            }
+            catch (IOException exception)
+            {
+                _printState.Text = "应用状态：无法保存默认纸张参数 — " + exception.Message;
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                _printState.Text = "应用状态：无法保存默认纸张参数 — " + exception.Message;
+            }
+        }
+
+        private void SavePaperDefaults()
+        {
+            if (_document == null)
+            {
+                return;
+            }
+            ApplicationSettingsStore.Save(new PaperDefaults
+            {
+                WidthMm = _document.WidthMm,
+                HeightMm = _document.HeightMm,
+                GapMm = _document.GapMm,
+                Direction = _document.Direction
+            });
+        }
+
+        private void UpdatePaperDefaultsText()
+        {
+            if (_savePaperDefaults != null)
+            {
+                _savePaperDefaults.Text = _savePaperDefaults.Checked ? "✓ 已设为默认" : "设为默认";
+            }
+        }
+
+        private void AutoRefreshChanged(object sender, EventArgs args)
+        {
+            if (_loading)
+            {
+                return;
+            }
+            _previewTimestamp = DateTime.Now;
+            _canvas.PreviewTimestamp = _previewTimestamp;
+            _autoRefresh.Text = _autoRefresh.Checked ? "✓ 自动刷新" : "⏸ 时间已固定";
+            UpdateEncodedContent();
+        }
+
+        private void ImagePropertyChanged(object sender, EventArgs args)
+        {
+            if (_loading || _syncingImageSize || _canvas.SelectedElement == null || !_canvas.SelectedElement.IsImage)
+            {
+                return;
+            }
+
+            LabelElement element = _canvas.SelectedElement;
+            element.ImageKeepAspect = _imageKeepAspect.Checked;
+            element.ImageDither = _imageDither.Checked;
+            element.ImageThreshold = Decimal.ToInt32(_imageThreshold.Value);
+
+            decimal aspect = element.ImagePixelWidth > 0 && element.ImagePixelHeight > 0
+                ? (decimal)element.ImagePixelWidth / element.ImagePixelHeight
+                : 1m;
+            decimal width = _imageWidth.Value;
+            decimal height = _imageHeight.Value;
+            if (element.ImageKeepAspect)
+            {
+                if (ReferenceEquals(sender, _imageHeight))
+                {
+                    width = height * aspect;
+                }
+                else
+                {
+                    height = width / Math.Max(0.01m, aspect);
+                }
+            }
+            element.Width = width;
+            element.Height = height;
+            _document.ClampElement(element);
+
+            _syncingImageSize = true;
+            _loading = true;
+            SetNumeric(_imageWidth, element.Width);
+            SetNumeric(_imageHeight, element.Height);
+            SetNumeric(_elementWidth, element.Width);
+            SetNumeric(_elementHeight, element.Height);
+            _loading = false;
+            _syncingImageSize = false;
+            _canvas.Invalidate();
+            _elementList.Invalidate();
         }
 
         private void ElementPropertyChanged(object sender, EventArgs args)
@@ -746,6 +1046,19 @@ namespace T50LabelPrinter
             element.Y = _elementY.Value;
             element.Width = _elementWidth.Value;
             element.Height = _elementHeight.Value;
+            if (element.IsImage && element.ImageKeepAspect &&
+                element.ImagePixelWidth > 0 && element.ImagePixelHeight > 0)
+            {
+                decimal aspect = (decimal)element.ImagePixelWidth / element.ImagePixelHeight;
+                if (ReferenceEquals(sender, _elementWidth))
+                {
+                    element.Height = element.Width / aspect;
+                }
+                else if (ReferenceEquals(sender, _elementHeight))
+                {
+                    element.Width = element.Height * aspect;
+                }
+            }
             element.Text = _textContent.Text;
             FontOption font = _fontFamily.SelectedItem as FontOption;
             if (font != null)
@@ -769,9 +1082,17 @@ namespace T50LabelPrinter
             }
             element.DigitsText = digits;
             _document.ClampElement(element);
+            if (element.IsImage)
+            {
+                _loading = true;
+                SetNumeric(_elementWidth, element.Width);
+                SetNumeric(_elementHeight, element.Height);
+                _loading = false;
+            }
             _pdfPayload.Enabled = element.IsBarcode && !element.PdfUseTimestamp;
             _digitsText.Enabled = element.IsBarcode && element.PrintDigits;
             UpdateEncodedContent();
+            LoadSelectedImage();
             _elementList.Invalidate();
             _canvas.Invalidate();
         }
@@ -808,6 +1129,78 @@ namespace T50LabelPrinter
             _canvas.Invalidate();
         }
 
+        private void ImportImage()
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog
+            {
+                Title = "导入标签图片",
+                Filter = "支持的图片 (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|PNG 图片 (*.png)|*.png|JPEG 图片 (*.jpg;*.jpeg)|*.jpg;*.jpeg|BMP 图片 (*.bmp)|*.bmp|GIF 图片 (*.gif)|*.gif|TIFF 图片 (*.tif;*.tiff)|*.tif;*.tiff",
+                CheckFileExists = true,
+                Multiselect = false
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                try
+                {
+                    ImageImportData image = ImageAssetService.Import(dialog.FileName);
+                    LabelElement element = LabelElement.CreateImage(
+                        _document.WidthMm,
+                        _document.HeightMm,
+                        image.PngBase64,
+                        image.FileName,
+                        image.PixelWidth,
+                        image.PixelHeight);
+                    AddElement(element);
+                    _tabs.SelectedTab = _imageTab;
+                    LoadSelectedImage();
+                    _printState.Text = "应用状态：已导入图片 " + image.FileName + "，打印时自动转换为单色。";
+                }
+                catch (Exception exception) when (
+                    exception is IOException ||
+                    exception is UnauthorizedAccessException ||
+                    exception is ArgumentException ||
+                    exception is InvalidDataException ||
+                    exception is OutOfMemoryException)
+                {
+                    MessageBox.Show(this, exception.Message, "无法导入图片", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void LoadSelectedImage()
+        {
+            if (_imageInfo == null)
+            {
+                return;
+            }
+            LabelElement element = _canvas == null ? null : _canvas.SelectedElement;
+            bool isImage = element != null && element.IsImage;
+            _loading = true;
+            _imageInfo.Text = isImage
+                ? (element.ImageFileName ?? "未命名图片") + "  " + element.ImagePixelWidth + "×" + element.ImagePixelHeight + " px"
+                : "尚未选择图片";
+            foreach (Control control in new Control[]
+            {
+                _imageWidth, _imageHeight, _imageThreshold, _imageDither, _imageKeepAspect
+            })
+            {
+                control.Enabled = isImage;
+            }
+            if (isImage)
+            {
+                SetNumeric(_imageWidth, element.Width);
+                SetNumeric(_imageHeight, element.Height);
+                SetNumeric(_imageThreshold, element.ImageThreshold);
+                _imageDither.Checked = element.ImageDither;
+                _imageKeepAspect.Checked = element.ImageKeepAspect;
+            }
+            _loading = false;
+        }
+
         private void DeleteSelectedElement()
         {
             LabelElement selected = _canvas.SelectedElement;
@@ -818,6 +1211,7 @@ namespace T50LabelPrinter
             _document.Elements.Remove(selected);
             _canvas.SelectedElement = null;
             RefreshElementList();
+            LoadSelectedImage();
             _canvas.Invalidate();
         }
 
@@ -849,6 +1243,7 @@ namespace T50LabelPrinter
             _canvas.SelectedElement = document.Elements.FirstOrDefault();
             _printGuide.Enabled = document.GuideMode != CenterGuideMode.None;
             _guideThickness.Enabled = document.GuideMode != CenterGuideMode.None;
+            LoadSelectedImage();
             _canvas.Invalidate();
         }
 
@@ -861,7 +1256,9 @@ namespace T50LabelPrinter
                 ? "未选择"
                 : element.Kind == LabelElementKind.Text
                     ? "文字"
-                    : element.Kind == LabelElementKind.DataMatrix ? "Data Matrix 条码" : "PDF417 条码";
+                    : element.IsImage
+                        ? "单色图片"
+                        : element.Kind == LabelElementKind.DataMatrix ? "Data Matrix 条码" : "PDF417 条码";
             foreach (Control control in new Control[]
             {
                 _elementX, _elementY, _elementWidth, _elementHeight, _textContent, _fontFamily,
@@ -935,7 +1332,7 @@ namespace T50LabelPrinter
                 _pdfEncodedContent.ForeColor = Color.DimGray;
                 return;
             }
-            DateTime timestamp = DateTime.Now;
+            DateTime timestamp = _previewTimestamp;
             string content = element.GetBarcodeContent(timestamp);
             string suffix = element.PrintDigits ? "  |  数位码：" + element.GetDigitsContent(timestamp) : string.Empty;
             bool prefixValid = Regex.IsMatch(element.PdfPrefix ?? string.Empty, "^[A-Za-z]{3}$");
@@ -954,7 +1351,7 @@ namespace T50LabelPrinter
             {
                 return "标签中没有任何内容。";
             }
-            if (!_document.PrintBarcodes && !_document.Elements.Any(item => item.Kind == LabelElementKind.Text))
+            if (!_document.PrintBarcodes && _document.Elements.All(item => item.IsBarcode))
             {
                 return "标签中只有条码，但“打印条码”已经关闭。";
             }
@@ -968,9 +1365,16 @@ namespace T50LabelPrinter
                 {
                     return "条码未使用自动时间时，自定义字符串不能为空。";
                 }
-                if (element.PrintDigits && string.IsNullOrWhiteSpace(element.GetDigitsContent(DateTime.Now)))
+                if (element.PrintDigits && string.IsNullOrWhiteSpace(element.GetDigitsContent(_previewTimestamp)))
                 {
                     return element.DisplayName + " 已选择打印附加数位码，但没有可打印的数字。";
+                }
+            }
+            foreach (LabelElement element in _document.Elements.Where(item => item.IsImage))
+            {
+                if (!ImageAssetService.IsValidImageData(element.ImageData))
+                {
+                    return element.DisplayName + " 的图片数据无效，请重新导入。";
                 }
             }
             return null;
@@ -1051,7 +1455,8 @@ namespace T50LabelPrinter
                 {
                     return;
                 }
-                using (Bitmap bitmap = LabelRenderer.RenderForPrinter(_document, DateTime.Now))
+                DateTime timestamp = _autoRefresh.Checked ? DateTime.Now : _previewTimestamp;
+                using (Bitmap bitmap = LabelRenderer.RenderForPrinter(_document, timestamp))
                 {
                     bitmap.Save(dialog.FileName, ImageFormat.Png);
                 }
@@ -1217,6 +1622,36 @@ namespace T50LabelPrinter
             _devicePaths.Enabled = enabled;
             _scanButton.Enabled = enabled;
             _queryButton.Enabled = enabled;
+            _autoRefresh.Enabled = enabled;
+        }
+
+        private static Image LoadBrandImage()
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dragon.png");
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            try
+            {
+                using (FileStream stream = File.OpenRead(path))
+                using (Image source = Image.FromStream(stream, true, true))
+                {
+                    return new Bitmap(source);
+                }
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
 
         private void SelectFont(string familyName)

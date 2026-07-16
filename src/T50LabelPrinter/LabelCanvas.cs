@@ -19,12 +19,28 @@ namespace T50LabelPrinter
         private TextBox _inlineEditor;
         private LabelElement _editingElement;
         private bool _closingEditor;
+        private DateTime _previewTimestamp = DateTime.Now;
 
         public LabelCanvas()
         {
             DoubleBuffered = true;
             BackColor = Color.FromArgb(232, 234, 237);
+            TabStop = true;
             SetStyle(ControlStyles.ResizeRedraw, true);
+        }
+
+        public DateTime PreviewTimestamp
+        {
+            get { return _previewTimestamp; }
+            set
+            {
+                if (_previewTimestamp == value)
+                {
+                    return;
+                }
+                _previewTimestamp = value;
+                Invalidate();
+            }
         }
 
         public LabelDocument Document
@@ -60,6 +76,7 @@ namespace T50LabelPrinter
 
         public event EventHandler SelectionChanged;
         public event EventHandler DocumentChanged;
+        public event EventHandler DeleteRequested;
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -85,7 +102,7 @@ namespace T50LabelPrinter
             }
             else
             {
-                using (Bitmap preview = LabelRenderer.Render(Document, DateTime.Now, scale, false))
+                using (Bitmap preview = LabelRenderer.Render(Document, PreviewTimestamp, scale, false))
                 {
                     e.Graphics.DrawImageUnscaled(preview, (int)Math.Round(labelBounds.X), (int)Math.Round(labelBounds.Y));
                 }
@@ -143,6 +160,7 @@ namespace T50LabelPrinter
             {
                 return;
             }
+            Focus();
 
             if (SelectedElement != null && GetResizeHandle(ElementToScreen(SelectedElement)).Contains(e.Location))
             {
@@ -180,8 +198,29 @@ namespace T50LabelPrinter
             PointF mouse = ScreenToMillimeters(e.Location);
             if (_resizing)
             {
-                SelectedElement.Width = Snap(Math.Max(1m, (decimal)mouse.X - SelectedElement.X));
-                SelectedElement.Height = Snap(Math.Max(1m, (decimal)mouse.Y - SelectedElement.Y));
+                decimal requestedWidth = Snap(Math.Max(1m, (decimal)mouse.X - SelectedElement.X));
+                decimal requestedHeight = Snap(Math.Max(1m, (decimal)mouse.Y - SelectedElement.Y));
+                if (SelectedElement.IsImage && SelectedElement.ImageKeepAspect &&
+                    SelectedElement.ImagePixelWidth > 0 && SelectedElement.ImagePixelHeight > 0)
+                {
+                    decimal aspect = (decimal)SelectedElement.ImagePixelWidth / SelectedElement.ImagePixelHeight;
+                    decimal maximumWidth = Math.Max(1m, Document.WidthMm - SelectedElement.X);
+                    decimal maximumHeight = Math.Max(1m, Document.HeightMm - SelectedElement.Y);
+                    decimal width = Math.Min(requestedWidth, maximumWidth);
+                    decimal height = width / aspect;
+                    if (height > maximumHeight)
+                    {
+                        height = maximumHeight;
+                        width = height * aspect;
+                    }
+                    SelectedElement.Width = Snap(Math.Max(1m, width));
+                    SelectedElement.Height = Snap(Math.Max(1m, height));
+                }
+                else
+                {
+                    SelectedElement.Width = requestedWidth;
+                    SelectedElement.Height = requestedHeight;
+                }
             }
             else
             {
@@ -242,7 +281,7 @@ namespace T50LabelPrinter
             }
             RectangleF labelBounds = GetLabelBounds();
             float scale = labelBounds.Width / (float)Document.WidthMm;
-            DateTime timestamp = DateTime.Now;
+            DateTime timestamp = PreviewTimestamp;
             _dragBackground = LabelRenderer.Render(Document, timestamp, scale, false, SelectedElement);
             if (!SelectedElement.IsBarcode || Document.PrintBarcodes)
             {
@@ -376,6 +415,20 @@ namespace T50LabelPrinter
             {
                 handler(this, EventArgs.Empty);
             }
+        }
+
+        protected override bool ProcessCmdKey(ref Message message, Keys keyData)
+        {
+            if (keyData == Keys.Delete && _inlineEditor == null && SelectedElement != null)
+            {
+                EventHandler handler = DeleteRequested;
+                if (handler != null)
+                {
+                    handler(this, EventArgs.Empty);
+                }
+                return true;
+            }
+            return base.ProcessCmdKey(ref message, keyData);
         }
     }
 }
