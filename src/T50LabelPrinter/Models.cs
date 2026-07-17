@@ -101,6 +101,13 @@ namespace T50LabelPrinter
         [DataMember(Order = 22)]
         public int ImagePixelHeight { get; set; }
 
+        [DataMember(Order = 23)]
+        public int ObjectId { get; set; }
+
+        // 队列映射仅作用于当前打印任务，不写入标签模板。
+        [IgnoreDataMember]
+        public string QueueMappedContent { get; set; }
+
         public bool IsBarcode
         {
             get { return Kind == LabelElementKind.Pdf417 || Kind == LabelElementKind.DataMatrix; }
@@ -115,17 +122,18 @@ namespace T50LabelPrinter
         {
             get
             {
+                string id = "#" + ObjectId + "  ";
                 if (Kind == LabelElementKind.Pdf417)
                 {
-                    return "PDF417  " + (PdfPrefix ?? "").ToUpperInvariant();
+                    return id + "PDF417  " + (PdfPrefix ?? "").ToUpperInvariant();
                 }
                 if (Kind == LabelElementKind.DataMatrix)
                 {
-                    return "Data Matrix  " + (PdfPrefix ?? "").ToUpperInvariant();
+                    return id + "Data Matrix  " + (PdfPrefix ?? "").ToUpperInvariant();
                 }
                 if (Kind == LabelElementKind.Image)
                 {
-                    return "图片  " + (string.IsNullOrWhiteSpace(ImageFileName) ? "（未命名）" : ImageFileName);
+                    return id + "图片  " + (string.IsNullOrWhiteSpace(ImageFileName) ? "（未命名）" : ImageFileName);
                 }
 
                 string value = (Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
@@ -133,7 +141,7 @@ namespace T50LabelPrinter
                 {
                     value = value.Substring(0, 14) + "…";
                 }
-                return "文字  " + (value.Length == 0 ? "（空）" : value);
+                return id + "文字  " + (value.Length == 0 ? "（空）" : value);
             }
         }
 
@@ -144,6 +152,10 @@ namespace T50LabelPrinter
 
         public string GetBarcodeContent(DateTime timestamp)
         {
+            if (QueueMappedContent != null)
+            {
+                return QueueMappedContent;
+            }
             string prefix = (PdfPrefix ?? string.Empty).Trim().ToUpperInvariant();
             string payload = PdfUseTimestamp
                 ? timestamp.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)
@@ -370,8 +382,20 @@ namespace T50LabelPrinter
                 Elements = new List<LabelElement>();
             }
 
+            HashSet<int> usedIds = new HashSet<int>();
+            int nextId = 1;
             foreach (LabelElement element in Elements)
             {
+                if (element.ObjectId <= 0 || usedIds.Contains(element.ObjectId))
+                {
+                    while (usedIds.Contains(nextId))
+                    {
+                        nextId++;
+                    }
+                    element.ObjectId = nextId;
+                }
+                usedIds.Add(element.ObjectId);
+                nextId = Math.Max(nextId, element.ObjectId + 1);
                 if (string.IsNullOrWhiteSpace(element.FontFamily))
                 {
                     element.FontFamily = FontCatalog.DefaultSansFamily;
@@ -401,6 +425,61 @@ namespace T50LabelPrinter
                 }
                 ClampElement(element);
             }
+        }
+
+        public int GetNextObjectId()
+        {
+            int maximum = Elements == null || Elements.Count == 0 ? 0 : Elements.Max(element => element.ObjectId);
+            return Math.Max(1, maximum + 1);
+        }
+
+        public LabelDocument DeepClone()
+        {
+            LabelDocument clone = new LabelDocument
+            {
+                WidthMm = WidthMm,
+                HeightMm = HeightMm,
+                GapMm = GapMm,
+                PaperType = PaperType,
+                Direction = Direction,
+                Speed = Speed,
+                Deepness = Deepness,
+                Copies = Copies,
+                OneByOne = OneByOne,
+                GuideMode = GuideMode,
+                PrintGuide = PrintGuide,
+                GuideThicknessMm = GuideThicknessMm,
+                PrintBarcodes = PrintBarcodes,
+                Elements = Elements.Select(element => new LabelElement
+                {
+                    Kind = element.Kind,
+                    X = element.X,
+                    Y = element.Y,
+                    Width = element.Width,
+                    Height = element.Height,
+                    Text = element.Text,
+                    FontFamily = element.FontFamily,
+                    FontSizeMm = element.FontSizeMm,
+                    Bold = element.Bold,
+                    Align = element.Align,
+                    PdfPrefix = element.PdfPrefix,
+                    PdfUseTimestamp = element.PdfUseTimestamp,
+                    PdfPayload = element.PdfPayload,
+                    PrintDigits = element.PrintDigits,
+                    DigitsText = element.DigitsText,
+                    ImageData = element.ImageData,
+                    ImageFileName = element.ImageFileName,
+                    ImageThreshold = element.ImageThreshold,
+                    ImageDither = element.ImageDither,
+                    ImageKeepAspect = element.ImageKeepAspect,
+                    ImagePixelWidth = element.ImagePixelWidth,
+                    ImagePixelHeight = element.ImagePixelHeight,
+                    ObjectId = element.ObjectId,
+                    QueueMappedContent = element.QueueMappedContent
+                }).ToList()
+            };
+            clone.Normalize();
+            return clone;
         }
 
         public void ClampElement(LabelElement element)

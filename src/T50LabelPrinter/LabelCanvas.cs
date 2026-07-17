@@ -21,6 +21,8 @@ namespace T50LabelPrinter
         private bool _closingEditor;
         private DateTime _previewTimestamp = DateTime.Now;
 
+        public bool ReadOnly { get; set; }
+
         public LabelCanvas()
         {
             DoubleBuffered = true;
@@ -145,8 +147,12 @@ namespace T50LabelPrinter
                     e.Graphics.DrawRectangle(pen, selectedBounds.X, selectedBounds.Y, selectedBounds.Width, selectedBounds.Height);
                 }
                 RectangleF handle = GetResizeHandle(selectedBounds);
-                e.Graphics.FillRectangle(Brushes.RoyalBlue, handle);
-                e.Graphics.DrawRectangle(Pens.White, handle.X, handle.Y, handle.Width, handle.Height);
+                if (!ReadOnly)
+                {
+                    e.Graphics.FillRectangle(Brushes.RoyalBlue, handle);
+                    e.Graphics.DrawRectangle(Pens.White, handle.X, handle.Y, handle.Width, handle.Height);
+                }
+                DrawObjectIdBadge(e.Graphics, selectedBounds, SelectedElement.ObjectId);
             }
 
             string sizeText = string.Format("{0:0.#} × {1:0.#} mm   缩放 {2:0.0} px/mm", Document.WidthMm, Document.HeightMm, scale);
@@ -162,7 +168,7 @@ namespace T50LabelPrinter
             }
             Focus();
 
-            if (SelectedElement != null && GetResizeHandle(ElementToScreen(SelectedElement)).Contains(e.Location))
+            if (!ReadOnly && SelectedElement != null && GetResizeHandle(ElementToScreen(SelectedElement)).Contains(e.Location))
             {
                 _resizing = true;
                 _dragging = true;
@@ -173,7 +179,7 @@ namespace T50LabelPrinter
 
             LabelElement hit = Document.Elements.AsEnumerable().Reverse().FirstOrDefault(element => ElementToScreen(element).Contains(e.Location));
             SelectedElement = hit;
-            if (hit != null)
+            if (hit != null && !ReadOnly)
             {
                 PointF mouse = ScreenToMillimeters(e.Location);
                 _dragOffsetMm = new PointF(mouse.X - (float)hit.X, mouse.Y - (float)hit.Y);
@@ -189,7 +195,7 @@ namespace T50LabelPrinter
             base.OnMouseMove(e);
             if (!_dragging || SelectedElement == null || Document == null)
             {
-                Cursor = SelectedElement != null && GetResizeHandle(ElementToScreen(SelectedElement)).Contains(e.Location)
+                Cursor = !ReadOnly && SelectedElement != null && GetResizeHandle(ElementToScreen(SelectedElement)).Contains(e.Location)
                     ? Cursors.SizeNWSE
                     : Cursors.Default;
                 return;
@@ -249,7 +255,7 @@ namespace T50LabelPrinter
         protected override void OnMouseDoubleClick(MouseEventArgs e)
         {
             base.OnMouseDoubleClick(e);
-            if (Document == null || e.Button != MouseButtons.Left)
+            if (ReadOnly || Document == null || e.Button != MouseButtons.Left)
             {
                 return;
             }
@@ -403,6 +409,28 @@ namespace T50LabelPrinter
             return new RectangleF(bounds.Right - size / 2f, bounds.Bottom - size / 2f, size, size);
         }
 
+        private void DrawObjectIdBadge(Graphics graphics, RectangleF bounds, int objectId)
+        {
+            const float diameter = 22f;
+            RectangleF badge = new RectangleF(bounds.Right - diameter + 3f, bounds.Top - diameter / 2f, diameter, diameter);
+            using (Brush fill = new SolidBrush(Color.RoyalBlue))
+            using (Pen border = new Pen(Color.White, 1.5f))
+            {
+                graphics.FillEllipse(fill, badge);
+                graphics.DrawEllipse(border, badge);
+            }
+            using (Font badgeFont = new Font(Font.FontFamily, Math.Max(7f, Font.Size - 1f), FontStyle.Bold))
+            {
+                TextRenderer.DrawText(
+                    graphics,
+                    Math.Max(1, objectId).ToString(),
+                    badgeFont,
+                    Rectangle.Round(badge),
+                    Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
+        }
+
         private static decimal Snap(decimal value)
         {
             return Math.Round(value * 10m, MidpointRounding.AwayFromZero) / 10m;
@@ -419,7 +447,7 @@ namespace T50LabelPrinter
 
         protected override bool ProcessCmdKey(ref Message message, Keys keyData)
         {
-            if (keyData == Keys.Delete && _inlineEditor == null && SelectedElement != null)
+            if (!ReadOnly && keyData == Keys.Delete && _inlineEditor == null && SelectedElement != null)
             {
                 EventHandler handler = DeleteRequested;
                 if (handler != null)

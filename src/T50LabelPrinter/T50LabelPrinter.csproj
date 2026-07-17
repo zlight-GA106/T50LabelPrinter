@@ -40,9 +40,12 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
     <Reference Include="Supvan.T50PRO.SDK">
       <HintPath>..\..\SUPVAN.T50PRO.DLL\SUPVAN.T50PRO.DLL\PackageSDK\Supvan.T50PRO.SDK\Supvan.T50PRO.SDK.dll</HintPath>
       <Private>true</Private>
@@ -68,12 +71,18 @@
     <Compile Include="Models.cs" />
     <Compile Include="Pdf417Renderer.cs" />
     <Compile Include="PrinterService.cs" />
+    <Compile Include="PrintQueueModels.cs" />
+    <Compile Include="SpreadsheetQueueImporter.cs" />
+    <Compile Include="MainForm.Queue.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
     <None Include="app.manifest" />
+    <None Include="..\..\examples\T50打印队列示例.xlsx">
+      <Link>T50打印队列示例.xlsx</Link>
+    </None>
     <EmbeddedResource Include="Assets\dragon.ico">
       <LogicalName>T50LabelPrinter.dragon.ico</LogicalName>
     </EmbeddedResource>
@@ -97,6 +106,7 @@
       <DistributionFiles Include="$(TargetDir)dragon.png" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\README.md" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\LICENSE" />
+      <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\examples\T50打印队列示例.xlsx" />
     </ItemGroup>
     <RemoveDir Directories="$(DistributionDirectory)" />
     <MakeDir Directories="$(DistributionDirectory)" />

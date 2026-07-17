@@ -13,7 +13,7 @@ using Supvan.T50PRO.SDK;
 
 namespace T50LabelPrinter
 {
-    public sealed class MainForm : Form
+    public sealed partial class MainForm : Form
     {
         private readonly PrinterService _printer = new PrinterService();
         private readonly Timer _timer = new Timer();
@@ -188,6 +188,7 @@ namespace T50LabelPrinter
             _tabs.TabPages.Add(CreateElementTab());
             _tabs.TabPages.Add(CreateFileTab());
             _tabs.TabPages.Add(CreateImageTab());
+            _tabs.TabPages.Add(CreateQueueTab());
             split.Panel1.Controls.Add(_tabs);
 
             Panel previewPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
@@ -611,7 +612,17 @@ namespace T50LabelPrinter
         {
             _scanButton.Click += async (sender, args) => await ScanDevicesAsync();
             _queryButton.Click += async (sender, args) => await QueryStatusAsync(true);
-            _printButton.Click += async (sender, args) => await PrintAsync();
+            _printButton.Click += async (sender, args) =>
+            {
+                if (_queueRunning)
+                {
+                    RequestQueueStop();
+                }
+                else
+                {
+                    await PrintAsync();
+                }
+            };
 
             _devicePaths.SelectedIndexChanged += async (sender, args) =>
             {
@@ -644,6 +655,11 @@ namespace T50LabelPrinter
             };
             _canvas.SelectionChanged += (sender, args) =>
             {
+                if (IsQueuePreviewActive)
+                {
+                    SelectMappingForCanvasObject();
+                    return;
+                }
                 _loading = true;
                 _elementList.SelectedItem = _canvas.SelectedElement;
                 _loading = false;
@@ -652,6 +668,10 @@ namespace T50LabelPrinter
             };
             _canvas.DocumentChanged += (sender, args) =>
             {
+                if (IsQueuePreviewActive)
+                {
+                    return;
+                }
                 LoadSelectedElement();
                 LoadSelectedImage();
                 _elementList.Invalidate();
@@ -678,6 +698,7 @@ namespace T50LabelPrinter
             _imageDither.CheckedChanged += ImagePropertyChanged;
             _imageKeepAspect.CheckedChanged += ImagePropertyChanged;
             _autoRefresh.CheckedChanged += AutoRefreshChanged;
+            _tabs.SelectedIndexChanged += QueueTabSelectionChanged;
             _printBarcodesToggle.CheckedChanged += (sender, args) =>
             {
                 if (_loading || _document == null)
@@ -1135,8 +1156,10 @@ namespace T50LabelPrinter
 
         private void AddElement(LabelElement element)
         {
+            element.ObjectId = _document.GetNextObjectId();
             _document.Elements.Add(element);
             RefreshElementList();
+            RefreshQueueMappings();
             _canvas.SelectedElement = element;
             _tabs.SelectedIndex = 1;
             _canvas.Invalidate();
@@ -1224,6 +1247,7 @@ namespace T50LabelPrinter
             _document.Elements.Remove(selected);
             _canvas.SelectedElement = null;
             RefreshElementList();
+            RefreshQueueMappings();
             LoadSelectedImage();
             _canvas.Invalidate();
         }
@@ -1257,6 +1281,7 @@ namespace T50LabelPrinter
             _printGuide.Enabled = document.GuideMode != CenterGuideMode.None;
             _guideThickness.Enabled = document.GuideMode != CenterGuideMode.None;
             LoadSelectedImage();
+            RefreshQueueMappings();
             _canvas.Invalidate();
         }
 
@@ -1356,34 +1381,43 @@ namespace T50LabelPrinter
 
         private string ValidateDocument()
         {
-            if (_document.WidthMm > 50m)
+            return ValidateDocument(_document, _previewTimestamp);
+        }
+
+        private string ValidateDocument(LabelDocument document, DateTime timestamp)
+        {
+            if (document.WidthMm > 50m)
             {
                 return "标签宽度不能超过 50 mm。";
             }
-            if (_document.Elements.Count == 0)
+            if (document.Elements.Count == 0)
             {
                 return "标签中没有任何内容。";
             }
-            if (!_document.PrintBarcodes && _document.Elements.All(item => item.IsBarcode))
+            if (!document.PrintBarcodes && document.Elements.All(item => item.IsBarcode))
             {
                 return "标签中只有条码，但“打印条码”已经关闭。";
             }
-            foreach (LabelElement element in _document.Elements.Where(item => item.IsBarcode && _document.PrintBarcodes))
+            foreach (LabelElement element in document.Elements.Where(item => item.IsBarcode && document.PrintBarcodes))
             {
-                if (!Regex.IsMatch(element.PdfPrefix ?? string.Empty, "^[A-Za-z]{3}$"))
+                if (element.QueueMappedContent == null && !Regex.IsMatch(element.PdfPrefix ?? string.Empty, "^[A-Za-z]{3}$"))
                 {
                     return "每个条码的头部必须恰好是 3 位英文字母。";
                 }
-                if (!element.PdfUseTimestamp && string.IsNullOrWhiteSpace(element.PdfPayload))
+                if (element.QueueMappedContent != null && string.IsNullOrWhiteSpace(element.QueueMappedContent))
+                {
+                    return element.DisplayName + " 映射到的条码内容为空。";
+                }
+                if (element.QueueMappedContent == null && !element.PdfUseTimestamp && string.IsNullOrWhiteSpace(element.PdfPayload))
                 {
                     return "条码未使用自动时间时，自定义字符串不能为空。";
                 }
-                if (element.PrintDigits && string.IsNullOrWhiteSpace(element.GetDigitsContent(_previewTimestamp)))
+                if (element.PrintDigits && string.IsNullOrWhiteSpace(element.GetDigitsContent(timestamp)))
                 {
                     return element.DisplayName + " 已选择打印附加数位码，但没有可打印的数字。";
                 }
             }
-            foreach (LabelElement element in _document.Elements.Where(item => item.IsImage))
+            foreach (LabelElement element in document.Elements.Where(item => item.IsImage))
             {
                 if (!ImageAssetService.IsValidImageData(element.ImageData))
                 {
@@ -1509,7 +1543,11 @@ namespace T50LabelPrinter
                 "  |  页数：" + status.PrintedPages + "/" + status.TotalPages,
                 IsFailureStatus(status) ? Color.Firebrick : Color.DimGray);
 
-            if (IsCompletedStatus(status))
+            if (_queueRunning)
+            {
+                UpdateQueueProgress(status);
+            }
+            else if (IsCompletedStatus(status))
             {
                 SetProgressComplete();
             }
@@ -1525,7 +1563,7 @@ namespace T50LabelPrinter
                 _progress.Maximum = 100;
                 _progress.Value = 0;
             }
-            if (_isPrinting)
+            if (_isPrinting && !_queueRunning)
             {
                 _printState.Text = "应用状态：" + status.StateText + BuildStatusDetail(status);
             }
