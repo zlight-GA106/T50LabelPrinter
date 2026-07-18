@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Supvan.T50PRO.SDK;
@@ -32,6 +33,7 @@ namespace T50LabelPrinter
         private int _queueTotalCount;
         private int _queueCurrentOrdinal;
         private bool _queueTaskSubmitted;
+        private CancellationTokenSource _queueCancellation;
 
         private bool IsQueuePreviewActive
         {
@@ -596,6 +598,10 @@ namespace T50LabelPrinter
                 return;
             }
             PrinterStatusSnapshot ready = await QueryStatusAsync(true);
+            if (_shutdownRequested)
+            {
+                return;
+            }
             if (ready == null || ready.State != DeviceState.Waiting)
             {
                 MessageBox.Show(this, "打印机必须处于“就绪”状态才能开始队列。", "打印机未就绪", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -604,6 +610,9 @@ namespace T50LabelPrinter
 
             LabelDocument queueTemplate = _document.DeepClone();
             List<QueueObjectMapping> mappings = GetQueueMappings().ToList();
+            CancellationTokenSource queueCancellation = new CancellationTokenSource();
+            _queueCancellation = queueCancellation;
+            CancellationToken cancellationToken = queueCancellation.Token;
             _queueRunning = true;
             _isPrinting = true;
             _queueStopRequested = false;
@@ -621,6 +630,7 @@ namespace T50LabelPrinter
             {
                 for (int index = 0; index < jobs.Count; index++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (_queueStopRequested)
                     {
                         break;
@@ -642,7 +652,7 @@ namespace T50LabelPrinter
                     }
 
                     _queueTaskSubmitted = false;
-                    PrinterStatusSnapshot baseline = await WaitUntilQueueReadyAsync(path);
+                    PrinterStatusSnapshot baseline = await WaitUntilQueueReadyAsync(path, cancellationToken);
                     string bitmapPath = null;
                     try
                     {
@@ -653,9 +663,10 @@ namespace T50LabelPrinter
                         {
                             bitmap.Save(bitmapPath, ImageFormat.Bmp);
                         }
-                        bool accepted = await Task.Run(() => _printer.Print(document, bitmapPath, path));
+                        bool accepted = await Task.Run(() => _printer.Print(document, bitmapPath, path), cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
                         _queueTaskSubmitted = true;
-                        await WaitForQueueCompletionAsync(path, document, baseline, accepted);
+                        await WaitForQueueCompletionAsync(path, document, baseline, accepted, cancellationToken);
                     }
                     finally
                     {
@@ -672,7 +683,7 @@ namespace T50LabelPrinter
                     _queueCompletedCount++;
                     UpdateQueueProgress(null);
                     RefreshQueueGridRows();
-                    await Task.Delay(200);
+                    await Task.Delay(200, cancellationToken);
                 }
 
                 if (_queueStopRequested)
@@ -685,18 +696,29 @@ namespace T50LabelPrinter
                     _printState.Text = "队列状态：打印完成 " + _queueCompletedCount + "/" + _queueTotalCount + "。";
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // 窗口关闭会取消队列。此时不再刷新已销毁的控件，也不弹出错误框。
+                if (!_shutdownRequested && !IsDisposed)
+                {
+                    _printState.Text = "队列状态：已取消。";
+                }
+            }
             catch (Exception exception)
             {
-                PrintQueueRow failed = jobs.FirstOrDefault(row => row.State == PrintQueueItemState.Printing);
-                if (failed != null)
+                if (!_shutdownRequested && !IsDisposed)
                 {
-                    failed.State = PrintQueueItemState.Failed;
-                    failed.Error = exception.Message;
+                    PrintQueueRow failed = jobs.FirstOrDefault(row => row.State == PrintQueueItemState.Printing);
+                    if (failed != null)
+                    {
+                        failed.State = PrintQueueItemState.Failed;
+                        failed.Error = exception.Message;
+                    }
+                    RefreshQueueGridRows();
+                    _printState.Text = "队列状态：已在第 " + _queueCurrentOrdinal + " 项停止 — " + exception.Message;
+                    MessageBox.Show(this, _printState.Text + "\r\n未发送的任务仍保留在队列中。",
+                        "队列打印失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
-                RefreshQueueGridRows();
-                _printState.Text = "队列状态：已在第 " + _queueCurrentOrdinal + " 项停止 — " + exception.Message;
-                MessageBox.Show(this, _printState.Text + "\r\n未发送的任务仍保留在队列中。",
-                    "队列打印失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -704,18 +726,28 @@ namespace T50LabelPrinter
                 _isPrinting = false;
                 _queueStopRequested = false;
                 _queueTaskSubmitted = false;
-                SetQueueRunningUi(false);
-                _timer.Start();
+                if (ReferenceEquals(_queueCancellation, queueCancellation))
+                {
+                    _queueCancellation = null;
+                }
+                queueCancellation.Dispose();
+                if (!_shutdownRequested && !IsDisposed)
+                {
+                    SetQueueRunningUi(false);
+                    _timer.Start();
+                }
             }
         }
 
-        private async Task<PrinterStatusSnapshot> WaitUntilQueueReadyAsync(string path)
+        private async Task<PrinterStatusSnapshot> WaitUntilQueueReadyAsync(string path, CancellationToken cancellationToken)
         {
             PrinterStatusSnapshot last = null;
             int stableCompletedCount = 0;
             for (int attempt = 0; attempt < 30; attempt++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 last = await QueryStatusAsync(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (last != null && last.State == DeviceState.Waiting && !IsFailureStatus(last))
                 {
                     return last;
@@ -736,7 +768,7 @@ namespace T50LabelPrinter
                 {
                     throw new InvalidOperationException("打印机未就绪：" + last.StateText + BuildStatusDetail(last));
                 }
-                await Task.Delay(300);
+                await Task.Delay(300, cancellationToken);
             }
             throw new TimeoutException("等待打印机回到就绪状态超时" + (last == null ? "。" : "：" + last.StateText + BuildStatusDetail(last)));
         }
@@ -745,7 +777,8 @@ namespace T50LabelPrinter
             string path,
             LabelDocument document,
             PrinterStatusSnapshot baseline,
-            bool accepted)
+            bool accepted,
+            CancellationToken cancellationToken)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             bool observedActivity = false;
@@ -759,8 +792,9 @@ namespace T50LabelPrinter
 
             while (stopwatch.Elapsed < TimeSpan.FromMinutes(2))
             {
-                await Task.Delay(300);
+                await Task.Delay(300, cancellationToken);
                 PrinterStatusSnapshot status = await QueryStatusAsync(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (status == null)
                 {
                     continue;
@@ -809,6 +843,22 @@ namespace T50LabelPrinter
             _queueStopButton.Enabled = false;
             _printButton.Enabled = false;
             _printState.Text = "队列状态：已请求停止；当前标签完成后不会再发送下一项。";
+        }
+
+        private void CancelQueueForShutdown()
+        {
+            _queueStopRequested = true;
+            CancellationTokenSource cancellation = _queueCancellation;
+            if (cancellation == null)
+            {
+                return;
+            }
+
+            try
+            {
+                cancellation.Cancel();
+            }
+            catch (ObjectDisposedException) { }
         }
 
         private void SetQueueRunningUi(bool running)

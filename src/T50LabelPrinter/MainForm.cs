@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -21,6 +22,8 @@ namespace T50LabelPrinter
         private bool _loading;
         private bool _statusBusy;
         private bool _isPrinting;
+        private bool _shutdownRequested;
+        private bool _forcedExitScheduled;
         private bool _syncingImageSize;
         private DateTime _previewTimestamp = DateTime.Now;
         private Image _brandImage;
@@ -127,6 +130,10 @@ namespace T50LabelPrinter
             _timer.Interval = 1000;
             _timer.Tick += async (sender, args) =>
             {
+                if (_shutdownRequested)
+                {
+                    return;
+                }
                 if (_autoRefresh.Checked)
                 {
                     _previewTimestamp = DateTime.Now;
@@ -141,17 +148,62 @@ namespace T50LabelPrinter
             _timer.Start();
 
             Shown += async (sender, args) => await ScanDevicesAsync();
-            FormClosed += (sender, args) =>
+            FormClosing += MainFormClosing;
+            FormClosed += MainFormClosed;
+        }
+
+        private void MainFormClosing(object sender, FormClosingEventArgs args)
+        {
+            // DataGridView 正在编辑时可能因校验失败把 FormClosingEventArgs.Cancel 设为 true。
+            // 退出命令必须优先于单元格提交，因此显式撤销该取消状态。
+            args.Cancel = false;
+            if (_shutdownRequested)
             {
-                _timer.Stop();
-                if (_brandImage != null)
+                return;
+            }
+
+            _shutdownRequested = true;
+            _timer.Stop();
+            CancelQueueForShutdown();
+            ScheduleForcedExit();
+        }
+
+        private void MainFormClosed(object sender, FormClosedEventArgs args)
+        {
+            _timer.Stop();
+            _timer.Dispose();
+            if (_brandImage != null)
+            {
+                _brandImage.Dispose();
+                _brandImage = null;
+            }
+
+            Application.ExitThread();
+        }
+
+        private void ScheduleForcedExit()
+        {
+            if (_forcedExitScheduled)
+            {
+                return;
+            }
+
+            _forcedExitScheduled = true;
+            Task.Run(async () =>
+            {
+                await Task.Delay(1500).ConfigureAwait(false);
+                try
                 {
-                    _brandImage.Dispose();
-                    _brandImage = null;
+                    // 部分 SDK 版本会留下无法正常结束的工作线程；仅在正常消息循环
+                    // 退出 1.5 秒后进程仍存活时，使用系统级终止作为最后兜底。
+                    using (Process process = Process.GetCurrentProcess())
+                    {
+                        process.Kill();
+                    }
                 }
-                // SDK 的部分版本会保留工作线程。程序是单窗体工具，主窗体关闭后应立即退出进程。
-                Environment.Exit(0);
-            };
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+            });
         }
 
         private void BuildInterface()
@@ -714,7 +766,7 @@ namespace T50LabelPrinter
 
         private async Task ScanDevicesAsync()
         {
-            if (_isPrinting)
+            if (_isPrinting || _shutdownRequested)
             {
                 return;
             }
@@ -724,6 +776,10 @@ namespace T50LabelPrinter
             try
             {
                 IList<string> paths = await Task.Run(() => _printer.GetDevicePaths());
+                if (_shutdownRequested)
+                {
+                    return;
+                }
                 _loading = true;
                 _devicePaths.Items.Clear();
                 foreach (string path in paths)
@@ -752,17 +808,29 @@ namespace T50LabelPrinter
             }
             catch (Exception exception)
             {
+                if (_shutdownRequested)
+                {
+                    return;
+                }
                 _loading = false;
                 SetDeviceState("搜索失败", Color.MistyRose, exception.Message, Color.Firebrick);
             }
             finally
             {
-                SetDeviceUiBusy(false, null);
+                if (!_shutdownRequested)
+                {
+                    SetDeviceUiBusy(false, null);
+                }
             }
         }
 
         private async Task<PrinterStatusSnapshot> QueryStatusAsync(bool showErrors)
         {
+            if (_shutdownRequested)
+            {
+                return null;
+            }
+
             string path = GetSelectedDevice();
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -781,6 +849,10 @@ namespace T50LabelPrinter
             try
             {
                 PrinterStatusSnapshot status = await Task.Run(() => _printer.GetStatus(path));
+                if (_shutdownRequested)
+                {
+                    return null;
+                }
                 if (status == null)
                 {
                     SetDeviceState("无响应", Color.MistyRose, "SDK 未返回打印机状态。", Color.Firebrick);
@@ -792,6 +864,10 @@ namespace T50LabelPrinter
             }
             catch (Exception exception)
             {
+                if (_shutdownRequested)
+                {
+                    return null;
+                }
                 SetDeviceState("查询失败", Color.MistyRose, exception.Message, Color.Firebrick);
                 SetSdkStatusText("SDK 状态：查询失败  |  描述：—  |  错误：" + SingleLine(exception.Message) + "  |  页数：0/0", Color.Firebrick);
                 if (showErrors)
@@ -828,6 +904,10 @@ namespace T50LabelPrinter
             }
 
             PrinterStatusSnapshot before = await QueryStatusAsync(true);
+            if (_shutdownRequested)
+            {
+                return;
+            }
             if (before == null)
             {
                 return;
@@ -857,10 +937,18 @@ namespace T50LabelPrinter
                 }
 
                 bool accepted = await Task.Run(() => _printer.Print(_document, temporaryBitmap, path));
+                if (_shutdownRequested)
+                {
+                    return;
+                }
                 PrinterStatusSnapshot finalStatus = null;
                 for (int attempt = 0; attempt < 7; attempt++)
                 {
                     await Task.Delay(attempt == 0 ? 250 : 450);
+                    if (_shutdownRequested)
+                    {
+                        return;
+                    }
                     finalStatus = await QueryStatusAsync(false);
                     if (IsCompletedStatus(finalStatus) || IsFailureStatus(finalStatus))
                     {
@@ -891,20 +979,26 @@ namespace T50LabelPrinter
             }
             catch (Exception exception)
             {
-                _printState.Text = "应用状态：打印失败 — " + exception.Message;
-                MessageBox.Show(this, exception.Message, "打印失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!_shutdownRequested && !IsDisposed)
+                {
+                    _printState.Text = "应用状态：打印失败 — " + exception.Message;
+                    MessageBox.Show(this, exception.Message, "打印失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
             finally
             {
                 _isPrinting = false;
-                if (_progress.Style == ProgressBarStyle.Marquee)
+                if (!_shutdownRequested && !IsDisposed)
                 {
-                    _progress.Style = ProgressBarStyle.Blocks;
-                    _progress.Maximum = 100;
-                    _progress.Value = 0;
+                    if (_progress.Style == ProgressBarStyle.Marquee)
+                    {
+                        _progress.Style = ProgressBarStyle.Blocks;
+                        _progress.Maximum = 100;
+                        _progress.Value = 0;
+                    }
+                    SetEditingEnabled(true);
+                    _timer.Start();
                 }
-                SetEditingEnabled(true);
-                _timer.Start();
                 if (!string.IsNullOrWhiteSpace(temporaryBitmap))
                 {
                     try { File.Delete(temporaryBitmap); }
