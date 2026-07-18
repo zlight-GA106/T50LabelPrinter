@@ -22,12 +22,14 @@ namespace T50LabelPrinter
         private DateTime _previewTimestamp = DateTime.Now;
 
         public bool ReadOnly { get; set; }
+        public bool AllowInlineTextEditing { get; set; }
 
         public LabelCanvas()
         {
             DoubleBuffered = true;
             BackColor = Color.FromArgb(232, 234, 237);
             TabStop = true;
+            AllowInlineTextEditing = true;
             SetStyle(ControlStyles.ResizeRedraw, true);
         }
 
@@ -162,11 +164,21 @@ namespace T50LabelPrinter
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (Document == null || e.Button != MouseButtons.Left)
+            if (Document == null)
             {
                 return;
             }
             Focus();
+
+            if (e.Button == MouseButtons.Right)
+            {
+                SelectedElement = HitTestElement(e.Location);
+                return;
+            }
+            if (e.Button != MouseButtons.Left)
+            {
+                return;
+            }
 
             if (!ReadOnly && SelectedElement != null && GetResizeHandle(ElementToScreen(SelectedElement)).Contains(e.Location))
             {
@@ -177,7 +189,7 @@ namespace T50LabelPrinter
                 return;
             }
 
-            LabelElement hit = Document.Elements.AsEnumerable().Reverse().FirstOrDefault(element => ElementToScreen(element).Contains(e.Location));
+            LabelElement hit = HitTestElement(e.Location);
             SelectedElement = hit;
             if (hit != null && !ReadOnly)
             {
@@ -255,13 +267,16 @@ namespace T50LabelPrinter
         protected override void OnMouseDoubleClick(MouseEventArgs e)
         {
             base.OnMouseDoubleClick(e);
-            if (ReadOnly || Document == null || e.Button != MouseButtons.Left)
+            if (ReadOnly || !AllowInlineTextEditing || Document == null || e.Button != MouseButtons.Left)
             {
                 return;
             }
 
-            LabelElement hit = Document.Elements.AsEnumerable().Reverse()
-                .FirstOrDefault(element => element.Kind == LabelElementKind.Text && ElementToScreen(element).Contains(e.Location));
+            LabelElement hit = HitTestElement(e.Location);
+            if (hit != null && hit.Kind != LabelElementKind.Text)
+            {
+                hit = null;
+            }
             if (hit != null)
             {
                 SelectedElement = hit;
@@ -323,7 +338,7 @@ namespace T50LabelPrinter
                 Multiline = true,
                 AcceptsReturn = true,
                 BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font(FontCatalog.ResolveFamily(element.FontFamily), fontPixels, element.Bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel),
+                Font = LabelRenderer.CreateTextFont(element, fontPixels),
                 TextAlign = element.Align == 1 ? HorizontalAlignment.Center : element.Align == 2 ? HorizontalAlignment.Right : HorizontalAlignment.Left
             };
             _inlineEditor.KeyDown += InlineEditorKeyDown;
@@ -383,6 +398,16 @@ namespace T50LabelPrinter
             float width = (float)Document.WidthMm * scale;
             float height = (float)Document.HeightMm * scale;
             return new RectangleF((ClientSize.Width - width) / 2f, (ClientSize.Height - height) / 2f, width, height);
+        }
+
+        private LabelElement HitTestElement(Point location)
+        {
+            if (Document == null)
+            {
+                return null;
+            }
+            return Document.Elements.AsEnumerable().Reverse()
+                .FirstOrDefault(element => ElementToScreen(element).Contains(location));
         }
 
         private RectangleF ElementToScreen(LabelElement element)

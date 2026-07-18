@@ -517,7 +517,8 @@ namespace T50LabelPrinter
             }
             int selectedObjectId = _canvas.SelectedElement == null ? -1 : _canvas.SelectedElement.ObjectId;
             _queuePreviewDocument = QueueDocumentMapper.Apply(_document, _queueData.Rows[index], GetQueueMappings());
-            _canvas.ReadOnly = true;
+            _canvas.ReadOnly = false;
+            _canvas.AllowInlineTextEditing = false;
             _canvas.Document = _queuePreviewDocument;
             _canvas.SelectedElement = _queuePreviewDocument.Elements.FirstOrDefault(item => item.ObjectId == selectedObjectId) ??
                                       _queuePreviewDocument.Elements.FirstOrDefault();
@@ -541,10 +542,33 @@ namespace T50LabelPrinter
             }
             int selectedId = _canvas.SelectedElement == null ? -1 : _canvas.SelectedElement.ObjectId;
             _canvas.ReadOnly = false;
+            _canvas.AllowInlineTextEditing = true;
             _canvas.Document = _document;
             _canvas.SelectedElement = _document.Elements.FirstOrDefault(item => item.ObjectId == selectedId) ??
                                       _document.Elements.FirstOrDefault();
             _canvas.Invalidate();
+        }
+
+        private void SyncQueuePreviewGeometryToTemplate()
+        {
+            if (!IsQueuePreviewActive || _canvas.SelectedElement == null || _document == null)
+            {
+                return;
+            }
+
+            LabelElement preview = _canvas.SelectedElement;
+            LabelElement template = _document.Elements.FirstOrDefault(item => item.ObjectId == preview.ObjectId);
+            if (template == null)
+            {
+                return;
+            }
+
+            template.X = preview.X;
+            template.Y = preview.Y;
+            template.Width = preview.Width;
+            template.Height = preview.Height;
+            _document.ClampElement(template);
+            _elementList.Invalidate();
         }
 
         private void SelectCanvasObjectForMapping()

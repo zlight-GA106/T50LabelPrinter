@@ -120,20 +120,14 @@ namespace T50LabelPrinter
 
         private static void DrawText(Graphics graphics, LabelElement element, RectangleF rectangle, float dotsPerMm)
         {
-            string familyName = FontCatalog.ResolveFamily(element.FontFamily);
-            FontStyle requestedStyle = element.Bold ? FontStyle.Bold : FontStyle.Regular;
-            float fontSize = Math.Max(3f, (float)element.FontSizeMm * dotsPerMm);
+            float requestedSize = Math.Max(3f, (float)element.FontSizeMm * dotsPerMm);
+            // GDI+ 在字高大于绘制矩形且启用 LineLimit 时可能完全不绘制文字。
+            // 保留模型中的原始字号，仅在渲染时缩小到至少能显示一行的高度。
+            float fontSize = Math.Max(1f, Math.Min(requestedSize, rectangle.Height * 0.82f));
             Font font = null;
             try
             {
-                try
-                {
-                    font = new Font(familyName, fontSize, requestedStyle, GraphicsUnit.Pixel);
-                }
-                catch (ArgumentException)
-                {
-                    font = new Font(familyName, fontSize, FontStyle.Regular, GraphicsUnit.Pixel);
-                }
+                font = CreateTextFont(element, fontSize);
 
                 using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
                 {
@@ -162,6 +156,45 @@ namespace T50LabelPrinter
                     font.Dispose();
                 }
             }
+        }
+
+        internal static Font CreateTextFont(LabelElement element, float fontSize)
+        {
+            string familyName = FontCatalog.ResolveFamily(element == null ? null : element.FontFamily);
+            bool bold = element != null && element.Bold;
+            bool italic = element != null && element.Italic;
+            FontStyle requested = FontStyle.Regular;
+            if (bold)
+            {
+                requested |= FontStyle.Bold;
+            }
+            if (italic)
+            {
+                requested |= FontStyle.Italic;
+            }
+
+            FontStyle[] candidates =
+            {
+                requested,
+                bold ? FontStyle.Bold : FontStyle.Regular,
+                italic ? FontStyle.Italic : FontStyle.Regular,
+                FontStyle.Regular
+            };
+            FontStyle attempted = (FontStyle)(-1);
+            foreach (FontStyle style in candidates)
+            {
+                if (style == attempted)
+                {
+                    continue;
+                }
+                attempted = style;
+                try
+                {
+                    return new Font(familyName, Math.Max(1f, fontSize), style, GraphicsUnit.Pixel);
+                }
+                catch (ArgumentException) { }
+            }
+            return new Font(FontFamily.GenericSansSerif, Math.Max(1f, fontSize), FontStyle.Regular, GraphicsUnit.Pixel);
         }
 
         private static void DrawBarcode(Graphics graphics, LabelElement element, DateTime timestamp, RectangleF rectangle, float dotsPerMm)

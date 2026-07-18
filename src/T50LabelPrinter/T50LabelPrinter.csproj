@@ -67,6 +67,7 @@
     <Compile Include="LabelCanvas.cs" />
     <Compile Include="LabelRenderer.cs" />
     <Compile Include="MainForm.cs" />
+    <Compile Include="MainForm.ContextMenu.cs" />
     <Compile Include="MatrixBitmapRenderer.cs" />
     <Compile Include="Models.cs" />
     <Compile Include="Pdf417Renderer.cs" />

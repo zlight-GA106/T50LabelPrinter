@@ -104,6 +104,9 @@ namespace T50LabelPrinter
         [DataMember(Order = 23)]
         public int ObjectId { get; set; }
 
+        [DataMember(Order = 24)]
+        public bool Italic { get; set; }
+
         // 队列映射仅作用于当前打印任务，不写入标签模板。
         [IgnoreDataMember]
         public string QueueMappedContent { get; set; }
@@ -359,12 +362,9 @@ namespace T50LabelPrinter
             };
 
             LabelElement text = LabelElement.CreateText(document.WidthMm, document.HeightMm);
-            text.Y = 4m;
-            text.Text = "示例标签";
-            LabelElement barcode = LabelElement.CreatePdf417(document.WidthMm, document.HeightMm);
-            barcode.Y = 13m;
+            text.Y = Math.Max(0m, (document.HeightMm - text.Height) / 2m);
+            text.Text = "默认标签";
             document.Elements.Add(text);
-            document.Elements.Add(barcode);
             return document;
         }
 
@@ -461,6 +461,7 @@ namespace T50LabelPrinter
                     FontFamily = element.FontFamily,
                     FontSizeMm = element.FontSizeMm,
                     Bold = element.Bold,
+                    Italic = element.Italic,
                     Align = element.Align,
                     PdfPrefix = element.PdfPrefix,
                     PdfUseTimestamp = element.PdfUseTimestamp,

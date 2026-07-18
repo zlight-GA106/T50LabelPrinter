@@ -61,6 +61,7 @@ namespace T50LabelPrinter
         private ComboBox _fontFamily;
         private NumericUpDown _fontSize;
         private CheckBox _bold;
+        private CheckBox _italic;
         private ComboBox _align;
         private TextBox _pdfPrefix;
         private CheckBox _pdfUseTimestamp;
@@ -265,6 +266,7 @@ namespace T50LabelPrinter
             previewHeader.Controls.Add(previewTitle);
             previewHeader.Controls.Add(_autoRefresh);
             _canvas = new LabelCanvas { Dock = DockStyle.Fill };
+            _canvas.ContextMenuStrip = CreateCanvasContextMenu();
             previewPanel.Controls.Add(_canvas);
             previewPanel.Controls.Add(previewHeader);
             split.Panel2.Controls.Add(previewPanel);
@@ -455,7 +457,11 @@ namespace T50LabelPrinter
                 _fontFamily.Items.Add(option);
             }
             _fontSize = CreateNumeric(0.8m, 20m, 4m, 0.1m, 1);
-            _bold = new CheckBox { Text = "加粗", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+            FlowLayoutPanel textStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
+            _bold = new CheckBox { Text = "加粗", Width = 70, Height = 25, TextAlign = ContentAlignment.MiddleLeft };
+            _italic = new CheckBox { Text = "斜体", Width = 70, Height = 25, TextAlign = ContentAlignment.MiddleLeft };
+            textStyle.Controls.Add(_bold);
+            textStyle.Controls.Add(_italic);
             _align = CreateCombo("左对齐", "居中", "右对齐");
             _pdfPrefix = new TextBox { Dock = DockStyle.Fill, MaxLength = 3, CharacterCasing = CharacterCasing.Upper };
             _pdfUseTimestamp = new CheckBox { Text = "自动时间（精确到秒）", Dock = DockStyle.Fill, Checked = true };
@@ -478,7 +484,7 @@ namespace T50LabelPrinter
             AddPropertyRow(table, "文字内容", _textContent, 66f);
             AddPropertyRow(table, "字体", _fontFamily);
             AddPropertyRow(table, "字号高度 (mm)", _fontSize);
-            AddPropertyRow(table, "字形", _bold);
+            AddPropertyRow(table, "字形", textStyle);
             AddPropertyRow(table, "文字对齐", _align);
             AddPropertyRow(table, "条码头部", _pdfPrefix);
             AddPropertyRow(table, "条码内容", _pdfUseTimestamp);
@@ -722,6 +728,7 @@ namespace T50LabelPrinter
             {
                 if (IsQueuePreviewActive)
                 {
+                    SyncQueuePreviewGeometryToTemplate();
                     return;
                 }
                 LoadSelectedElement();
@@ -738,6 +745,7 @@ namespace T50LabelPrinter
             _fontFamily.SelectedIndexChanged += ElementPropertyChanged;
             _fontSize.ValueChanged += ElementPropertyChanged;
             _bold.CheckedChanged += ElementPropertyChanged;
+            _italic.CheckedChanged += ElementPropertyChanged;
             _align.SelectedIndexChanged += ElementPropertyChanged;
             _pdfUseTimestamp.CheckedChanged += ElementPropertyChanged;
             _pdfPayload.TextChanged += ElementPropertyChanged;
@@ -1195,6 +1203,7 @@ namespace T50LabelPrinter
             }
             element.FontSizeMm = _fontSize.Value;
             element.Bold = _bold.Checked;
+            element.Italic = _italic.Checked;
             element.Align = Math.Max(0, _align.SelectedIndex);
             element.PdfUseTimestamp = _pdfUseTimestamp.Checked;
             element.PdfPayload = _pdfPayload.Text;
@@ -1250,13 +1259,24 @@ namespace T50LabelPrinter
 
         private void AddElement(LabelElement element)
         {
+            bool queuePreview = IsQueuePreviewActive;
             element.ObjectId = _document.GetNextObjectId();
             _document.Elements.Add(element);
             RefreshElementList();
             RefreshQueueMappings();
-            _canvas.SelectedElement = element;
-            _tabs.SelectedIndex = 1;
-            _canvas.Invalidate();
+            if (queuePreview)
+            {
+                PreviewSelectedQueueRow();
+                _canvas.SelectedElement = _queuePreviewDocument == null
+                    ? null
+                    : _queuePreviewDocument.Elements.FirstOrDefault(item => item.ObjectId == element.ObjectId);
+            }
+            else
+            {
+                _canvas.SelectedElement = element;
+                _tabs.SelectedIndex = 1;
+                _canvas.Invalidate();
+            }
         }
 
         private void ImportImage()
@@ -1338,12 +1358,28 @@ namespace T50LabelPrinter
             {
                 return;
             }
-            _document.Elements.Remove(selected);
+            bool queuePreview = IsQueuePreviewActive;
+            LabelElement templateElement = queuePreview
+                ? _document.Elements.FirstOrDefault(element => element.ObjectId == selected.ObjectId)
+                : selected;
+            if (templateElement == null)
+            {
+                return;
+            }
+            _document.Elements.Remove(templateElement);
+            _queueMappings.Remove(templateElement.ObjectId);
             _canvas.SelectedElement = null;
             RefreshElementList();
             RefreshQueueMappings();
             LoadSelectedImage();
-            _canvas.Invalidate();
+            if (queuePreview)
+            {
+                PreviewSelectedQueueRow();
+            }
+            else
+            {
+                _canvas.Invalidate();
+            }
         }
 
         private void LoadDocument(LabelDocument document)
@@ -1394,7 +1430,7 @@ namespace T50LabelPrinter
             foreach (Control control in new Control[]
             {
                 _elementX, _elementY, _elementWidth, _elementHeight, _textContent, _fontFamily,
-                _fontSize, _bold, _align, _pdfPrefix, _pdfUseTimestamp, _pdfPayload, _printDigits, _digitsText
+                _fontSize, _bold, _italic, _align, _pdfPrefix, _pdfUseTimestamp, _pdfPayload, _printDigits, _digitsText
             })
             {
                 control.Enabled = hasElement;
@@ -1410,6 +1446,7 @@ namespace T50LabelPrinter
                 SelectFont(element.FontFamily);
                 SetNumeric(_fontSize, element.FontSizeMm);
                 _bold.Checked = element.Bold;
+                _italic.Checked = element.Italic;
                 _align.SelectedIndex = Math.Max(0, Math.Min(2, element.Align));
                 _pdfPrefix.Text = element.PdfPrefix ?? string.Empty;
                 _pdfUseTimestamp.Checked = element.PdfUseTimestamp;
@@ -1423,6 +1460,7 @@ namespace T50LabelPrinter
                 _fontFamily.Enabled = text;
                 _fontSize.Enabled = text;
                 _bold.Enabled = text;
+                _italic.Enabled = text;
                 _align.Enabled = text;
                 _pdfPrefix.Enabled = barcode;
                 _pdfUseTimestamp.Enabled = barcode;
