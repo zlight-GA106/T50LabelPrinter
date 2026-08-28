@@ -2,7 +2,7 @@
 
 这是一个面向硕方 T50 Pro 标签打印机和通用 58mm 热敏打印机的 Windows 桌面程序，使用原生 WinForms 控件编写。T50 Pro 通过 USB 数据线调用硕方提供的 `Supvan.T50PRO.SDK.dll`；58mm 日程打印通过 Windows 已安装的打印机驱动工作。项目不引入大型界面框架，标签打印与日程打印分别维护独立的设备页、数据模型和打印链路。
 
-当前 Release 版本：`v1.4.0`
+当前 Release 版本：`v1.4.1`
 
 仓库地址：<https://github.com/zlight-GA106/T50LabelPrinter>
 Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
@@ -80,6 +80,7 @@ dragon.png
 - 在表格列标题上单击右键可删除该列；“恢复全部列”会重新显示完成、时间和日程内容列，隐藏列的数据不会丢失。
 - 日程文本和标题的右键菜单支持字体、字号、加粗与斜体。日程页不支持的 Data Matrix、PDF417 操作会以禁用状态显示。
 - “导出日程模板”会保存当前排版、日期规则、列状态、文字样式和全部日程行；“加载日程模板”可以把 `.t58schedule` 文件恢复到日程页面继续编辑或打印。
+- 编辑日程单元格时，实时预览会等待本次输入结束，不会提交或中断正在输入的文字。
 
 ## 编辑操作
 

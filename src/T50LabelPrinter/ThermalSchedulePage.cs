@@ -436,13 +436,14 @@ namespace T50LabelPrinter
             _margin.ValueChanged += ScheduleChanged;
             _rowSpacing.ValueChanged += ScheduleChanged;
             _copies.ValueChanged += ScheduleChanged;
+            _items.CellBeginEdit += (sender, args) => _previewTimer.Stop();
             _items.CellEndEdit += (sender, args) => ScheduleChanged(sender, EventArgs.Empty);
             _items.CellValueChanged += (sender, args) => ScheduleChanged(sender, EventArgs.Empty);
             _items.CellDoubleClick += ItemsCellDoubleClick;
             _items.CellMouseDown += ItemsCellMouseDown;
             _items.CurrentCellDirtyStateChanged += (sender, args) =>
             {
-                if (_items.IsCurrentCellDirty)
+                if (_items.IsCurrentCellDirty && _items.CurrentCell is DataGridViewCheckBoxCell)
                 {
                     _items.CommitEdit(DataGridViewDataErrorContexts.Commit);
                 }
@@ -753,7 +754,7 @@ namespace T50LabelPrinter
             ThermalScheduleDocument document;
             try
             {
-                document = BuildDocument();
+                document = BuildDocument(true);
                 using (Bitmap validation = ThermalScheduleRenderer.Render(document)) { }
             }
             catch (Exception exception)
@@ -942,9 +943,12 @@ namespace T50LabelPrinter
             ScheduleChanged(this, EventArgs.Empty);
         }
 
-        private ThermalScheduleDocument BuildDocument()
+        private ThermalScheduleDocument BuildDocument(bool commitEdits)
         {
-            _items.EndEdit();
+            if (commitEdits)
+            {
+                _items.EndEdit();
+            }
             FontOption font = _fontFamily.SelectedItem as FontOption;
             ThermalScheduleDocument document = new ThermalScheduleDocument
             {
@@ -969,13 +973,27 @@ namespace T50LabelPrinter
             foreach (DataGridViewRow row in _items.Rows)
             {
                 ThermalScheduleItem item = GetRowMetadata(row).DeepClone();
-                item.Completed = Convert.ToBoolean(row.Cells["Completed"].Value ?? false);
-                item.Time = Convert.ToString(row.Cells["Time"].Value) ?? string.Empty;
-                item.Content = Convert.ToString(row.Cells["Content"].Value) ?? string.Empty;
+                item.Completed = Convert.ToBoolean(GetCellValue(row, "Completed") ?? false);
+                item.Time = Convert.ToString(GetCellValue(row, "Time")) ?? string.Empty;
+                item.Content = Convert.ToString(GetCellValue(row, "Content")) ?? string.Empty;
                 document.Items.Add(item);
             }
             document.Normalize();
             return document;
+        }
+
+        private object GetCellValue(DataGridViewRow row, string columnName)
+        {
+            DataGridViewCell cell = row.Cells[columnName];
+            if (_items.IsCurrentCellInEditMode && ReferenceEquals(_items.CurrentCell, cell))
+            {
+                TextBoxBase textEditor = _items.EditingControl as TextBoxBase;
+                if (textEditor != null)
+                {
+                    return textEditor.Text;
+                }
+            }
+            return cell.Value;
         }
 
         private void UpdatePreview()
@@ -984,9 +1002,13 @@ namespace T50LabelPrinter
             {
                 return;
             }
+            if (_items.IsCurrentCellInEditMode)
+            {
+                return;
+            }
             try
             {
-                _preview.SetDocument(BuildDocument());
+                _preview.SetDocument(BuildDocument(false));
                 _previewInfo.Text = string.Format("58 × {0:0.#} mm  |  203 dpi", _preview.ReceiptHeightMm);
             }
             catch (Exception exception)
@@ -1024,7 +1046,7 @@ namespace T50LabelPrinter
             ThermalScheduleDocument document;
             try
             {
-                document = BuildDocument();
+                document = BuildDocument(true);
                 using (Bitmap validation = ThermalScheduleRenderer.Render(document)) { }
             }
             catch (Exception exception)
