@@ -67,18 +67,24 @@ namespace T50LabelPrinter
             float y = metrics.Margin;
             if (!string.IsNullOrWhiteSpace(document.Title))
             {
-                y += fonts.Title.GetHeight(graphics) + MillimetersToPixels(1.2m);
+                y += MeasureSingleLineHeight(document.Title, graphics, fonts.Title, metrics.ContentWidth) +
+                    MillimetersToPixels(1.2m);
             }
             if (document.ShowDate)
             {
-                y += fonts.Date.GetHeight(graphics) + MillimetersToPixels(0.8m);
+                string date = document.Date.ToString("yyyy-MM-dd  dddd", CultureInfo.CurrentCulture);
+                y += MeasureSingleLineHeight(date, graphics, fonts.Date, metrics.ContentWidth) +
+                    MillimetersToPixels(0.8m);
             }
             y += MillimetersToPixels(0.8m);
 
             IList<ThermalScheduleItem> items = GetVisibleItems(document);
             foreach (ThermalScheduleItem item in items)
             {
-                y += MeasureRowHeight(item, graphics, fonts.Body, metrics);
+                using (Font itemFont = fonts.CreateItemFont(document, item))
+                {
+                    y += MeasureRowHeight(document, item, graphics, itemFont, metrics);
+                }
             }
             y += metrics.Margin + MillimetersToPixels(2m);
             return Math.Max(MillimetersToPixels(40m), (int)Math.Ceiling(y));
@@ -92,13 +98,14 @@ namespace T50LabelPrinter
         {
             LayoutMetrics metrics = LayoutMetrics.Create(document, paperWidth);
             float y = metrics.Margin;
-            using (StringFormat centered = CreateStringFormat(StringAlignment.Center, StringAlignment.Near))
+            using (StringFormat centered = CreateSingleLineFormat(StringAlignment.Center))
             using (StringFormat left = CreateStringFormat(StringAlignment.Near, StringAlignment.Near))
             using (Pen separator = new Pen(Color.Black, Math.Max(1f, DotsPerMm * 0.12f)))
             {
                 if (!string.IsNullOrWhiteSpace(document.Title))
                 {
-                    float titleHeight = fonts.Title.GetHeight(graphics);
+                    float titleHeight = MeasureSingleLineHeight(
+                        document.Title, graphics, fonts.Title, metrics.ContentWidth);
                     graphics.DrawString(document.Title, fonts.Title, Brushes.Black,
                         new RectangleF(metrics.Margin, y, metrics.ContentWidth, titleHeight), centered);
                     y += titleHeight + MillimetersToPixels(1.2m);
@@ -107,7 +114,7 @@ namespace T50LabelPrinter
                 if (document.ShowDate)
                 {
                     string date = document.Date.ToString("yyyy-MM-dd  dddd", CultureInfo.CurrentCulture);
-                    float dateHeight = fonts.Date.GetHeight(graphics);
+                    float dateHeight = MeasureSingleLineHeight(date, graphics, fonts.Date, metrics.ContentWidth);
                     graphics.DrawString(date, fonts.Date, Brushes.Black,
                         new RectangleF(metrics.Margin, y, metrics.ContentWidth, dateHeight), centered);
                     y += dateHeight + MillimetersToPixels(0.8m);
@@ -118,36 +125,46 @@ namespace T50LabelPrinter
 
                 foreach (ThermalScheduleItem item in GetVisibleItems(document))
                 {
-                    float rowHeight = MeasureRowHeight(item, graphics, fonts.Body, metrics);
-                    float contentY = y + metrics.RowPadding;
-                    float x = metrics.Margin;
-
-                    if (document.ShowCheckboxes)
+                    using (Font itemFont = fonts.CreateItemFont(document, item))
                     {
-                        float boxSize = metrics.CheckboxSize;
-                        float boxY = contentY + Math.Max(0f, (fonts.Body.GetHeight(graphics) - boxSize) / 2f);
-                        graphics.DrawRectangle(separator, x, boxY, boxSize, boxSize);
-                        if (item.Completed)
+                        float rowHeight = MeasureRowHeight(document, item, graphics, itemFont, metrics);
+                        float contentY = y + metrics.RowPadding;
+                        float x = metrics.Margin;
+
+                        if (document.ShowCheckboxes)
                         {
-                            graphics.DrawLine(separator, x + boxSize * 0.18f, boxY + boxSize * 0.55f,
-                                x + boxSize * 0.43f, boxY + boxSize * 0.8f);
-                            graphics.DrawLine(separator, x + boxSize * 0.43f, boxY + boxSize * 0.8f,
-                                x + boxSize * 0.86f, boxY + boxSize * 0.2f);
+                            float boxSize = metrics.CheckboxSize;
+                            float boxY = contentY + Math.Max(0f, (itemFont.GetHeight(graphics) - boxSize) / 2f);
+                            graphics.DrawRectangle(separator, x, boxY, boxSize, boxSize);
+                            if (item.Completed)
+                            {
+                                graphics.DrawLine(separator, x + boxSize * 0.18f, boxY + boxSize * 0.55f,
+                                    x + boxSize * 0.43f, boxY + boxSize * 0.8f);
+                                graphics.DrawLine(separator, x + boxSize * 0.43f, boxY + boxSize * 0.8f,
+                                    x + boxSize * 0.86f, boxY + boxSize * 0.2f);
+                            }
+                            x += boxSize + metrics.ColumnGap;
                         }
-                        x += boxSize + metrics.ColumnGap;
+
+                        if (document.ShowTime)
+                        {
+                            graphics.DrawString(item.Time ?? string.Empty, itemFont, Brushes.Black,
+                                new RectangleF(x, contentY, metrics.TimeWidth,
+                                    rowHeight - metrics.RowPadding * 2f), left);
+                            x += metrics.TimeWidth + metrics.ColumnGap;
+                        }
+
+                        if (document.ShowContent)
+                        {
+                            graphics.DrawString(string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content,
+                                itemFont, Brushes.Black,
+                                new RectangleF(x, contentY, metrics.ContentTextWidth,
+                                    rowHeight - metrics.RowPadding * 2f), left);
+                        }
+
+                        y += rowHeight;
+                        graphics.DrawLine(separator, metrics.Margin, y, paperWidth - metrics.Margin, y);
                     }
-
-                    graphics.DrawString(item.Time ?? string.Empty, fonts.Body, Brushes.Black,
-                        new RectangleF(x, contentY, metrics.TimeWidth, rowHeight - metrics.RowPadding * 2f), left);
-                    x += metrics.TimeWidth + metrics.ColumnGap;
-
-                    Font contentFont = item.Completed ? fonts.CompletedBody : fonts.Body;
-                    graphics.DrawString(string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content,
-                        contentFont, Brushes.Black,
-                        new RectangleF(x, contentY, metrics.ContentTextWidth, rowHeight - metrics.RowPadding * 2f), left);
-
-                    y += rowHeight;
-                    graphics.DrawLine(separator, metrics.Margin, y, paperWidth - metrics.Margin, y);
                 }
             }
         }
@@ -166,19 +183,45 @@ namespace T50LabelPrinter
         }
 
         private static float MeasureRowHeight(
+            ThermalScheduleDocument document,
             ThermalScheduleItem item,
             Graphics graphics,
             Font font,
             LayoutMetrics metrics)
         {
-            string content = string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content;
+            string content = document.ShowContent
+                ? (string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content)
+                : (document.ShowTime ? item.Time ?? string.Empty : string.Empty);
+            float availableWidth = document.ShowContent ? metrics.ContentTextWidth : metrics.TimeWidth;
             using (StringFormat format = CreateStringFormat(StringAlignment.Near, StringAlignment.Near))
             {
                 SizeF measured = graphics.MeasureString(content, font,
-                    new SizeF(metrics.ContentTextWidth, MillimetersToPixels(500m)), format);
+                    new SizeF(availableWidth, MillimetersToPixels(500m)), format);
                 float textHeight = Math.Max(font.GetHeight(graphics), measured.Height);
-                return Math.Max(metrics.MinimumRowHeight, textHeight + metrics.RowPadding * 2f);
+                return Math.Max(metrics.MinimumRowHeight, textHeight + metrics.RowPadding * 2f + 4f);
             }
+        }
+
+        private static float MeasureSingleLineHeight(string text, Graphics graphics, Font font, float width)
+        {
+            using (StringFormat format = CreateSingleLineFormat(StringAlignment.Center))
+            {
+                SizeF measured = graphics.MeasureString(text ?? string.Empty, font,
+                    new SizeF(width, MillimetersToPixels(30m)), format);
+                return Math.Max(font.GetHeight(graphics) + 6f, measured.Height + 6f);
+            }
+        }
+
+        private static StringFormat CreateSingleLineFormat(StringAlignment alignment)
+        {
+            StringFormat format = new StringFormat(StringFormat.GenericTypographic)
+            {
+                Alignment = alignment,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter
+            };
+            format.FormatFlags |= StringFormatFlags.NoWrap;
+            return format;
         }
 
         private static StringFormat CreateStringFormat(StringAlignment alignment, StringAlignment lineAlignment)
@@ -189,7 +232,6 @@ namespace T50LabelPrinter
                 LineAlignment = lineAlignment,
                 Trimming = StringTrimming.Word
             };
-            format.FormatFlags |= StringFormatFlags.LineLimit;
             return format;
         }
 
@@ -221,9 +263,12 @@ namespace T50LabelPrinter
                 float margin = MillimetersToPixels(document.MarginMm);
                 float contentWidth = Math.Max(MillimetersToPixels(20m), paperWidth - margin * 2f);
                 float checkbox = document.ShowCheckboxes ? MillimetersToPixels(3m) : 0f;
-                float time = Math.Min(MillimetersToPixels(12m), contentWidth * 0.28f);
+                float time = document.ShowTime
+                    ? Math.Min(MillimetersToPixels(12m), contentWidth * 0.28f)
+                    : 0f;
                 float gap = MillimetersToPixels(1.2m);
-                float reserved = time + gap + (document.ShowCheckboxes ? checkbox + gap : 0f);
+                float reserved = (document.ShowTime ? time + gap : 0f) +
+                    (document.ShowCheckboxes ? checkbox + gap : 0f);
                 return new LayoutMetrics
                 {
                     Margin = margin,
@@ -242,28 +287,41 @@ namespace T50LabelPrinter
         {
             public Font Title { get; private set; }
             public Font Date { get; private set; }
-            public Font Body { get; private set; }
-            public Font CompletedBody { get; private set; }
 
             public static ScheduleFonts Create(ThermalScheduleDocument document)
             {
                 float titleSize = (float)document.TitleFontSizeMm * DotsPerMm;
                 float bodySize = (float)document.BodyFontSizeMm * DotsPerMm;
+                FontStyle titleStyle = FontStyle.Regular;
+                if (document.TitleBold) titleStyle |= FontStyle.Bold;
+                if (document.TitleItalic) titleStyle |= FontStyle.Italic;
+                string titleFamily = string.IsNullOrWhiteSpace(document.TitleFontFamily)
+                    ? document.FontFamily
+                    : document.TitleFontFamily;
                 return new ScheduleFonts
                 {
-                    Title = CreateFont(document.FontFamily, titleSize, FontStyle.Bold),
-                    Date = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.82f), FontStyle.Regular),
-                    Body = CreateFont(document.FontFamily, bodySize, FontStyle.Regular),
-                    CompletedBody = CreateFont(document.FontFamily, bodySize, FontStyle.Strikeout)
+                    Title = CreateFont(titleFamily, titleSize, titleStyle),
+                    Date = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.82f), FontStyle.Regular)
                 };
+            }
+
+            public Font CreateItemFont(ThermalScheduleDocument document, ThermalScheduleItem item)
+            {
+                string family = string.IsNullOrWhiteSpace(item.FontFamily)
+                    ? document.FontFamily
+                    : item.FontFamily;
+                decimal sizeMm = item.FontSizeMm > 0m ? item.FontSizeMm : document.BodyFontSizeMm;
+                FontStyle style = FontStyle.Regular;
+                if (item.Bold) style |= FontStyle.Bold;
+                if (item.Italic) style |= FontStyle.Italic;
+                if (item.Completed) style |= FontStyle.Strikeout;
+                return CreateFont(family, (float)sizeMm * DotsPerMm, style);
             }
 
             public void Dispose()
             {
                 if (Title != null) Title.Dispose();
                 if (Date != null) Date.Dispose();
-                if (Body != null) Body.Dispose();
-                if (CompletedBody != null) CompletedBody.Dispose();
             }
 
             private static Font CreateFont(string requestedFamily, float size, FontStyle style)

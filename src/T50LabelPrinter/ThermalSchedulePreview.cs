@@ -22,6 +22,11 @@ namespace T50LabelPrinter
             get { return _receipt == null ? 0m : ThermalScheduleRenderer.GetHeightMm(_receipt); }
         }
 
+        public Rectangle ReceiptBounds
+        {
+            get { return GetReceiptBounds(); }
+        }
+
         public void SetDocument(ThermalScheduleDocument document)
         {
             DisposeReceipt();
@@ -56,10 +61,7 @@ namespace T50LabelPrinter
                 return;
             }
 
-            int availableWidth = Math.Max(0, ClientSize.Width - 48);
-            int x = Math.Max(24, (availableWidth - _receipt.Width) / 2 + 24) + AutoScrollPosition.X;
-            int y = 30 + AutoScrollPosition.Y;
-            Rectangle paper = new Rectangle(x, y, _receipt.Width, _receipt.Height);
+            Rectangle paper = GetReceiptBounds();
             using (Brush shadow = new SolidBrush(Color.FromArgb(70, Color.Black)))
             {
                 e.Graphics.FillRectangle(shadow, paper.X + 5, paper.Y + 5, paper.Width, paper.Height);
@@ -85,6 +87,18 @@ namespace T50LabelPrinter
             }
             _receipt.Dispose();
             _receipt = null;
+        }
+
+        private Rectangle GetReceiptBounds()
+        {
+            if (_receipt == null)
+            {
+                return Rectangle.Empty;
+            }
+            int availableWidth = Math.Max(0, ClientSize.Width - 48);
+            int x = Math.Max(24, (availableWidth - _receipt.Width) / 2 + 24) + AutoScrollPosition.X;
+            int y = 30 + AutoScrollPosition.Y;
+            return new Rectangle(x, y, _receipt.Width, _receipt.Height);
         }
     }
 }

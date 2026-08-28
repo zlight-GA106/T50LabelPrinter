@@ -1,13 +1,26 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 
 namespace T50LabelPrinter
 {
+    [DataContract]
     public sealed class ThermalScheduleItem
     {
+        [DataMember(Order = 1)]
         public bool Completed { get; set; }
+        [DataMember(Order = 2)]
         public string Time { get; set; }
+        [DataMember(Order = 3)]
         public string Content { get; set; }
+        [DataMember(Order = 4)]
+        public string FontFamily { get; set; }
+        [DataMember(Order = 5)]
+        public decimal FontSizeMm { get; set; }
+        [DataMember(Order = 6)]
+        public bool Bold { get; set; }
+        [DataMember(Order = 7)]
+        public bool Italic { get; set; }
 
         public ThermalScheduleItem DeepClone()
         {
@@ -15,25 +28,53 @@ namespace T50LabelPrinter
             {
                 Completed = Completed,
                 Time = Time ?? string.Empty,
-                Content = Content ?? string.Empty
+                Content = Content ?? string.Empty,
+                FontFamily = FontFamily ?? string.Empty,
+                FontSizeMm = FontSizeMm,
+                Bold = Bold,
+                Italic = Italic
             };
         }
     }
 
+    [DataContract]
     public sealed class ThermalScheduleDocument
     {
         public const decimal PaperWidthMm = 58m;
 
+        [DataMember(Order = 1)]
         public string Title { get; set; }
+        [DataMember(Order = 2)]
         public DateTime Date { get; set; }
+        [DataMember(Order = 3)]
+        public bool AutoDate { get; set; }
+        [DataMember(Order = 4)]
         public bool ShowDate { get; set; }
+        [DataMember(Order = 5)]
         public bool ShowCheckboxes { get; set; }
+        [DataMember(Order = 6)]
+        public bool ShowTime { get; set; }
+        [DataMember(Order = 7)]
+        public bool ShowContent { get; set; }
+        [DataMember(Order = 8)]
         public string FontFamily { get; set; }
+        [DataMember(Order = 9)]
+        public string TitleFontFamily { get; set; }
+        [DataMember(Order = 10)]
         public decimal TitleFontSizeMm { get; set; }
+        [DataMember(Order = 11)]
+        public bool TitleBold { get; set; }
+        [DataMember(Order = 12)]
+        public bool TitleItalic { get; set; }
+        [DataMember(Order = 13)]
         public decimal BodyFontSizeMm { get; set; }
+        [DataMember(Order = 14)]
         public decimal MarginMm { get; set; }
+        [DataMember(Order = 15)]
         public decimal RowSpacingMm { get; set; }
+        [DataMember(Order = 16)]
         public int Copies { get; set; }
+        [DataMember(Order = 17)]
         public List<ThermalScheduleItem> Items { get; set; }
 
         public static ThermalScheduleDocument CreateDefault()
@@ -42,10 +83,16 @@ namespace T50LabelPrinter
             {
                 Title = "今日日程",
                 Date = DateTime.Today,
+                AutoDate = true,
                 ShowDate = true,
                 ShowCheckboxes = true,
+                ShowTime = true,
+                ShowContent = true,
                 FontFamily = FontCatalog.DefaultSansFamily,
+                TitleFontFamily = string.Empty,
                 TitleFontSizeMm = 5m,
+                TitleBold = true,
+                TitleItalic = false,
                 BodyFontSizeMm = 3.2m,
                 MarginMm = 3m,
                 RowSpacingMm = 1.2m,
@@ -60,11 +107,21 @@ namespace T50LabelPrinter
 
         public void Normalize()
         {
-            Title = (Title ?? string.Empty).Trim();
+            Title = Limit((Title ?? string.Empty).Trim(), 80);
+            if (AutoDate)
+            {
+                Date = DateTime.Today;
+            }
+            else if (Date.Year < 1753 || Date.Year > 9998)
+            {
+                Date = DateTime.Today;
+            }
             if (string.IsNullOrWhiteSpace(FontFamily))
             {
                 FontFamily = FontCatalog.DefaultSansFamily;
             }
+            FontFamily = Limit(FontFamily.Trim(), 128);
+            TitleFontFamily = Limit((TitleFontFamily ?? string.Empty).Trim(), 128);
             TitleFontSizeMm = Math.Max(2.5m, Math.Min(10m, TitleFontSizeMm));
             BodyFontSizeMm = Math.Max(1.8m, Math.Min(8m, BodyFontSizeMm));
             MarginMm = Math.Max(1m, Math.Min(10m, MarginMm));
@@ -74,15 +131,26 @@ namespace T50LabelPrinter
             {
                 Items = new List<ThermalScheduleItem>();
             }
+            Items.RemoveAll(item => item == null);
             if (Items.Count > 200)
             {
                 Items.RemoveRange(200, Items.Count - 200);
             }
             foreach (ThermalScheduleItem item in Items)
             {
-                item.Time = (item.Time ?? string.Empty).Trim();
-                item.Content = (item.Content ?? string.Empty).Trim();
+                item.Time = Limit((item.Time ?? string.Empty).Trim(), 20);
+                item.Content = Limit((item.Content ?? string.Empty).Trim(), 500);
+                item.FontFamily = Limit((item.FontFamily ?? string.Empty).Trim(), 128);
+                if (item.FontSizeMm > 0m)
+                {
+                    item.FontSizeMm = Math.Max(1.8m, Math.Min(8m, item.FontSizeMm));
+                }
             }
+        }
+
+        private static string Limit(string value, int maximumLength)
+        {
+            return value.Length <= maximumLength ? value : value.Substring(0, maximumLength);
         }
 
         public ThermalScheduleDocument DeepClone()
@@ -91,10 +159,16 @@ namespace T50LabelPrinter
             {
                 Title = Title,
                 Date = Date,
+                AutoDate = AutoDate,
                 ShowDate = ShowDate,
                 ShowCheckboxes = ShowCheckboxes,
+                ShowTime = ShowTime,
+                ShowContent = ShowContent,
                 FontFamily = FontFamily,
+                TitleFontFamily = TitleFontFamily,
                 TitleFontSizeMm = TitleFontSizeMm,
+                TitleBold = TitleBold,
+                TitleItalic = TitleItalic,
                 BodyFontSizeMm = BodyFontSizeMm,
                 MarginMm = MarginMm,
                 RowSpacingMm = RowSpacingMm,

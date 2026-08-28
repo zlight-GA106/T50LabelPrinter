@@ -79,6 +79,7 @@
     <Compile Include="ThermalSchedulePage.cs" />
     <Compile Include="ThermalSchedulePreview.cs" />
     <Compile Include="ThermalScheduleRenderer.cs" />
+    <Compile Include="ThermalScheduleTemplateStore.cs" />
     <Compile Include="MainForm.Queue.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
