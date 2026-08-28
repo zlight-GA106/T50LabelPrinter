@@ -209,6 +209,17 @@ namespace T50LabelPrinter
 
         private void BuildInterface()
         {
+            TabControl devicePages = new TabControl
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Point(18, 5)
+            };
+            TabPage t50Page = new TabPage("T50 Pro 标签打印") { Padding = new Padding(0) };
+            TabPage schedulePage = new TabPage("58mm 日程打印") { Padding = new Padding(0) };
+            devicePages.TabPages.Add(t50Page);
+            devicePages.TabPages.Add(schedulePage);
+            Controls.Add(devicePages);
+
             TableLayoutPanel root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -220,7 +231,7 @@ namespace T50LabelPrinter
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 116f));
-            Controls.Add(root);
+            t50Page.Controls.Add(root);
 
             root.Controls.Add(CreateDevicePanel(), 0, 0);
 
@@ -272,6 +283,8 @@ namespace T50LabelPrinter
             split.Panel2.Controls.Add(previewPanel);
 
             root.Controls.Add(CreatePrintPanel(), 0, 2);
+
+            schedulePage.Controls.Add(new ThermalSchedulePage { Dock = DockStyle.Fill });
         }
 
         private Control CreateDevicePanel()

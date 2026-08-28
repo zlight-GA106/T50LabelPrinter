@@ -1,8 +1,8 @@
 # 硕方t50pro打印上位机
 
-这是一个面向硕方 T50 Pro 标签打印机的 Windows 桌面程序，使用原生 WinForms 控件编写，通过 USB 数据线调用硕方提供的 `Supvan.T50PRO.SDK.dll`。项目的目标很直接：在不引入大型界面框架的前提下，完成标签排版、状态查询、条码生成、图片单色化和实际打印。
+这是一个面向硕方 T50 Pro 标签打印机和通用 58mm 热敏打印机的 Windows 桌面程序，使用原生 WinForms 控件编写。T50 Pro 通过 USB 数据线调用硕方提供的 `Supvan.T50PRO.SDK.dll`；58mm 日程打印通过 Windows 已安装的打印机驱动工作。项目不引入大型界面框架，标签打印与日程打印分别维护独立的设备页、数据模型和打印链路。
 
-当前版本：`v1.3.0`
+当前 Release 版本：`v1.3.0`
 
 仓库地址：<https://github.com/zlight-GA106/T50LabelPrinter>
 Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
@@ -27,6 +27,9 @@ Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
 - 队列表格可以直接修改单元格、选择是否打印某行、预览映射结果并重置任务状态；队列预览中的对象可以直接拖动和缩放，布局会同步回标签模板。
 - 普通预览和队列预览的右键菜单均可快速添加 PDF417 或 Data Matrix 对象。
 - 批量任务逐条发送：上一条被打印状态确认完成后才发送下一条；失败或超时会立即停止并保留未发送项目。
+- 提供独立的“58mm 日程打印”设备页，可枚举 Windows 打印队列并识别默认打印机。
+- 58mm 日程表支持标题、日期、完成框、时间与多行内容，可调整字体、标题/正文字号、左右边距、行内边距和打印份数。
+- 日程条目支持添加、删除、上移、下移和完成标记；右侧按 203 dpi 实时生成与打印一致的滚动预览。
 
 ## 运行
 
@@ -61,6 +64,16 @@ dragon.png
 7. 单击“打印标签”，观察底部应用状态和 SDK 状态栏。
 
 不同耗材的黑标位置、间隙和显色效果可能不同。第一次使用某种标签纸时，建议先以低浓度打印一张测试标签，再逐步调整。
+
+## 58mm 日程打印
+
+1. 先在 Windows 中安装热敏打印机厂商提供的驱动，确认系统“打印机和扫描仪”页面可以看到该设备。
+2. 启动程序，切换到顶端“58mm 日程打印”设备页，单击“刷新设备”并选择对应的 Windows 打印队列。
+3. 编辑标题、日期和日程条目；勾选“完成”后，预览会显示勾选标记并为对应内容加删除线。
+4. 根据实际纸卷调整字体、字号、边距和行内边距。纸宽固定为 58mm，纸长根据日程内容自动计算，最大为 1000mm。
+5. 检查右侧预览后单击“打印日程表”。任务提交到 Windows 打印队列后，切纸、打印浓度和介质类型由打印机驱动负责。
+
+58mm 页面不依赖硕方 SDK，可用于常见 USB 热敏小票打印机。不同型号的可打印宽度通常略小于 58mm；默认左右各留 3mm 边距，如果内容靠近边缘，请适当增大边距。某些驱动不支持自定义卷纸长度时，需要在驱动首选项中选择 58mm 卷纸或启用连续纸。
 
 ## 编辑操作
 
@@ -156,6 +169,11 @@ Models.cs                    模板数据模型
 PrintQueueModels.cs          队列行、对象映射和标签数据替换
 SpreadsheetQueueImporter.cs  XLSX/CSV/TSV 读取
 PrinterService.cs            T50 Pro SDK 适配
+ThermalPrinterService.cs     Windows 58mm 打印队列适配
+ThermalScheduleModels.cs     日程与条目数据模型
+ThermalScheduleRenderer.cs   58mm 动态纸长排版与渲染
+ThermalSchedulePreview.cs    可滚动日程预览控件
+ThermalSchedulePage.cs       独立日程设备页面与交互
 ImageAssetService.cs         图片嵌入、缩放和单色转换
 ApplicationSettingsStore.cs  当前用户的纸张默认值
 ```

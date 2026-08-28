@@ -74,6 +74,11 @@
     <Compile Include="PrinterService.cs" />
     <Compile Include="PrintQueueModels.cs" />
     <Compile Include="SpreadsheetQueueImporter.cs" />
+    <Compile Include="ThermalPrinterService.cs" />
+    <Compile Include="ThermalScheduleModels.cs" />
+    <Compile Include="ThermalSchedulePage.cs" />
+    <Compile Include="ThermalSchedulePreview.cs" />
+    <Compile Include="ThermalScheduleRenderer.cs" />
     <Compile Include="MainForm.Queue.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
