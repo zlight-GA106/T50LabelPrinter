@@ -77,6 +77,15 @@ namespace T50LabelPrinter
         [DataMember(Order = 17)]
         public List<ThermalScheduleItem> Items { get; set; }
 
+        [DataMember(Order = 18)]
+        public bool ShowCountdown { get; set; }
+
+        [DataMember(Order = 19)]
+        public string CountdownName { get; set; }
+
+        [DataMember(Order = 20)]
+        public DateTime CountdownDate { get; set; }
+
         public static ThermalScheduleDocument CreateDefault()
         {
             return new ThermalScheduleDocument
@@ -97,6 +106,9 @@ namespace T50LabelPrinter
                 MarginMm = 3m,
                 RowSpacingMm = 1.2m,
                 Copies = 1,
+                ShowCountdown = false,
+                CountdownName = "目标日",
+                CountdownDate = DateTime.Today.AddDays(7),
                 Items = new List<ThermalScheduleItem>
                 {
                     new ThermalScheduleItem { Time = "09:00", Content = "填写日程内容" },
@@ -127,6 +139,15 @@ namespace T50LabelPrinter
             MarginMm = Math.Max(1m, Math.Min(10m, MarginMm));
             RowSpacingMm = Math.Max(0.4m, Math.Min(6m, RowSpacingMm));
             Copies = Math.Max(1, Math.Min(99, Copies));
+            CountdownName = Limit((CountdownName ?? string.Empty).Trim(), 80);
+            if (string.IsNullOrWhiteSpace(CountdownName))
+            {
+                CountdownName = "目标日";
+            }
+            if (CountdownDate.Year < 1753 || CountdownDate.Year > 9998)
+            {
+                CountdownDate = DateTime.Today;
+            }
             if (Items == null)
             {
                 Items = new List<ThermalScheduleItem>();
@@ -146,6 +167,20 @@ namespace T50LabelPrinter
                     item.FontSizeMm = Math.Max(1.8m, Math.Min(8m, item.FontSizeMm));
                 }
             }
+        }
+
+        public string GetCountdownText()
+        {
+            int days = (CountdownDate.Date - Date.Date).Days;
+            if (days > 0)
+            {
+                return "距离" + CountdownName + "还有 " + days + " 天";
+            }
+            if (days == 0)
+            {
+                return "今天是" + CountdownName;
+            }
+            return CountdownName + "已过去 " + Math.Abs((long)days) + " 天";
         }
 
         private static string Limit(string value, int maximumLength)
@@ -173,6 +208,9 @@ namespace T50LabelPrinter
                 MarginMm = MarginMm,
                 RowSpacingMm = RowSpacingMm,
                 Copies = Copies,
+                ShowCountdown = ShowCountdown,
+                CountdownName = CountdownName,
+                CountdownDate = CountdownDate,
                 Items = new List<ThermalScheduleItem>()
             };
             if (Items != null)

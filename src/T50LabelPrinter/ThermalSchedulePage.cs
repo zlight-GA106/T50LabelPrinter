@@ -22,6 +22,9 @@ namespace T50LabelPrinter
         private CheckBox _autoDate;
         private CheckBox _showDate;
         private CheckBox _showCheckboxes;
+        private CheckBox _showCountdown;
+        private TextBox _countdownName;
+        private DateTimePicker _countdownDate;
         private ComboBox _fontFamily;
         private NumericUpDown _titleFontSize;
         private NumericUpDown _bodyFontSize;
@@ -32,6 +35,7 @@ namespace T50LabelPrinter
         private ThermalSchedulePreview _preview;
         private Label _previewInfo;
         private Label _status;
+        private Label _currentFileLabel;
         private ProgressBar _progress;
         private Button _printButton;
         private ContextMenuStrip _scheduleContextMenu;
@@ -57,12 +61,19 @@ namespace T50LabelPrinter
         private bool _titleItalic;
         private bool _loading;
         private bool _printing;
+        private string _currentFilePath;
 
         public ThermalSchedulePage()
         {
             BuildInterface();
             WireEvents();
-            LoadDocument(ThermalScheduleDocument.CreateDefault());
+            ThermalScheduleDocument initialDocument;
+            bool loadedDefault = _templateStore.TryLoadDefault(out initialDocument);
+            LoadDocument(loadedDefault ? initialDocument : ThermalScheduleDocument.CreateDefault());
+            if (loadedDefault)
+            {
+                _status.Text = "应用状态：已加载默认日程预设。";
+            }
             RefreshPrinters();
             UpdatePreview();
         }
@@ -166,7 +177,7 @@ namespace T50LabelPrinter
                 RowCount = 3,
                 Padding = new Padding(8)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 252f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 318f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.Controls.Add(CreateScheduleSettings(), 0, 0);
@@ -183,24 +194,30 @@ namespace T50LabelPrinter
             Button up = CreateToolButton("上移", 56);
             Button down = CreateToolButton("下移", 56);
             Button sample = CreateToolButton("恢复示例", 76);
-            Button saveTemplate = CreateToolButton("导出日程模板…", 118);
-            Button loadTemplate = CreateToolButton("加载日程模板…", 118);
+            Button saveFile = CreateToolButton("保存文件", 82);
+            Button saveTemplate = CreateToolButton("另存为模板…", 108);
+            Button loadTemplate = CreateToolButton("加载模板…", 96);
+            Button saveDefault = CreateToolButton("设为默认预设", 110);
             addTitle.Click += (sender, args) => EditTitle();
             add.Click += (sender, args) => AddScheduleItem();
             remove.Click += (sender, args) => RemoveSelectedItem();
             up.Click += (sender, args) => MoveSelectedItem(-1);
             down.Click += (sender, args) => MoveSelectedItem(1);
             sample.Click += (sender, args) => LoadDocument(ThermalScheduleDocument.CreateDefault());
-            saveTemplate.Click += (sender, args) => SaveScheduleTemplate();
+            saveFile.Click += (sender, args) => SaveCurrentFile();
+            saveTemplate.Click += (sender, args) => SaveScheduleTemplateAs();
             loadTemplate.Click += (sender, args) => LoadScheduleTemplate();
+            saveDefault.Click += (sender, args) => SaveDefaultPreset();
             tools.Controls.Add(addTitle);
             tools.Controls.Add(add);
             tools.Controls.Add(remove);
             tools.Controls.Add(up);
             tools.Controls.Add(down);
             tools.Controls.Add(sample);
+            tools.Controls.Add(saveFile);
             tools.Controls.Add(saveTemplate);
             tools.Controls.Add(loadTemplate);
+            tools.Controls.Add(saveDefault);
             layout.Controls.Add(tools, 0, 1);
 
             _items = new DataGridView
@@ -253,23 +270,36 @@ namespace T50LabelPrinter
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 4,
-                RowCount = 6,
+                RowCount = 8,
                 Padding = new Padding(8, 5, 8, 5)
             };
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86f));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52f));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104f));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48f));
-            for (int row = 0; row < 6; row++)
+            for (int row = 0; row < 8; row++)
             {
-                table.RowStyles.Add(new RowStyle(SizeType.Percent, 16.6667f));
+                table.RowStyles.Add(new RowStyle(SizeType.Percent, 12.5f));
             }
 
             _title = new TextBox { Dock = DockStyle.Fill, MaxLength = 80 };
-            _date = new DateTimePicker { Dock = DockStyle.Fill, Format = DateTimePickerFormat.Long };
+            _date = new DateTimePicker
+            {
+                Dock = DockStyle.Fill,
+                Format = DateTimePickerFormat.Custom,
+                CustomFormat = "yyyy-MM-dd"
+            };
             _autoDate = new CheckBox { Text = "使用当天日期", Dock = DockStyle.Fill, Checked = true };
             _showDate = new CheckBox { Text = "打印日期", Dock = DockStyle.Fill };
             _showCheckboxes = new CheckBox { Text = "打印完成框", Dock = DockStyle.Fill };
+            _showCountdown = new CheckBox { Text = "打印倒数日", Dock = DockStyle.Fill };
+            _countdownName = new TextBox { Dock = DockStyle.Fill, MaxLength = 80 };
+            _countdownDate = new DateTimePicker
+            {
+                Dock = DockStyle.Fill,
+                Format = DateTimePickerFormat.Custom,
+                CustomFormat = "yyyy-MM-dd"
+            };
             _fontFamily = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             foreach (FontOption option in FontCatalog.GetOptions())
             {
@@ -283,10 +313,12 @@ namespace T50LabelPrinter
 
             AddSetting(table, 0, "标题", _title, "日期", _date);
             AddSetting(table, 1, "日期生成", _autoDate, "日期显示", _showDate);
-            AddSetting(table, 2, "日程状态", _showCheckboxes, "字体", _fontFamily);
-            AddSetting(table, 3, "标题字号 (mm)", _titleFontSize, "正文字号 (mm)", _bodyFontSize);
-            AddSetting(table, 4, "左右边距 (mm)", _margin, "行内边距 (mm)", _rowSpacing);
-            AddSetting(table, 5, "打印份数", _copies, "", new Panel());
+            AddSetting(table, 2, "倒数日", _showCountdown, "目标日期", _countdownDate);
+            AddSetting(table, 3, "目标名称", _countdownName, "字体", _fontFamily);
+            AddSetting(table, 4, "日程状态", _showCheckboxes, "标题字号 (mm)", _titleFontSize);
+            AddSetting(table, 5, "正文字号 (mm)", _bodyFontSize, "左右边距 (mm)", _margin);
+            AddSetting(table, 6, "行内边距 (mm)", _rowSpacing, "打印份数", _copies);
+            AddSetting(table, 7, "当前文件", CreateCurrentFileLabel(), "", new Panel());
             group.Controls.Add(table);
             return group;
         }
@@ -317,6 +349,19 @@ namespace T50LabelPrinter
             panel.Controls.Add(_preview);
             panel.Controls.Add(header);
             return panel;
+        }
+
+        private Control CreateCurrentFileLabel()
+        {
+            _currentFileLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "未保存",
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true,
+                ForeColor = Color.DimGray
+            };
+            return _currentFileLabel;
         }
 
         private Control CreatePrintPanel()
@@ -430,6 +475,9 @@ namespace T50LabelPrinter
             _autoDate.CheckedChanged += AutoDateChanged;
             _showDate.CheckedChanged += ScheduleChanged;
             _showCheckboxes.CheckedChanged += ScheduleChanged;
+            _showCountdown.CheckedChanged += CountdownOptionChanged;
+            _countdownName.TextChanged += ScheduleChanged;
+            _countdownDate.ValueChanged += ScheduleChanged;
             _fontFamily.SelectedIndexChanged += ScheduleChanged;
             _titleFontSize.ValueChanged += ScheduleChanged;
             _bodyFontSize.ValueChanged += ScheduleChanged;
@@ -461,6 +509,13 @@ namespace T50LabelPrinter
             {
                 _date.Value = DateTime.Today;
             }
+            ScheduleChanged(sender, args);
+        }
+
+        private void CountdownOptionChanged(object sender, EventArgs args)
+        {
+            _countdownName.Enabled = _showCountdown.Checked;
+            _countdownDate.Enabled = _showCountdown.Checked;
             ScheduleChanged(sender, args);
         }
 
@@ -749,18 +804,33 @@ namespace T50LabelPrinter
             ScheduleChanged(this, EventArgs.Empty);
         }
 
-        private void SaveScheduleTemplate()
+        public void SaveCurrentFile()
+        {
+            if (string.IsNullOrWhiteSpace(_currentFilePath))
+            {
+                SaveScheduleTemplateAs();
+                return;
+            }
+            ThermalScheduleDocument document;
+            if (TryBuildValidatedDocument(out document))
+            {
+                try
+                {
+                    SaveDocumentToPath(_currentFilePath, document, "日程文件已保存");
+                }
+                catch (Exception exception)
+                {
+                    MessageBox.Show(this, exception.Message, "无法保存日程文件",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void SaveScheduleTemplateAs()
         {
             ThermalScheduleDocument document;
-            try
+            if (!TryBuildValidatedDocument(out document))
             {
-                document = BuildDocument(true);
-                using (Bitmap validation = ThermalScheduleRenderer.Render(document)) { }
-            }
-            catch (Exception exception)
-            {
-                MessageBox.Show(this, exception.Message, "无法导出日程模板",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -778,14 +848,32 @@ namespace T50LabelPrinter
                 }
                 try
                 {
-                    _templateStore.Save(dialog.FileName, document);
-                    _status.Text = "应用状态：日程模板已导出 — " + dialog.FileName;
+                    SaveDocumentToPath(dialog.FileName, document, "日程模板已另存为");
                 }
                 catch (Exception exception)
                 {
-                    MessageBox.Show(this, exception.Message, "无法导出日程模板",
+                    MessageBox.Show(this, exception.Message, "无法保存日程模板",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
+            }
+        }
+
+        private void SaveDefaultPreset()
+        {
+            ThermalScheduleDocument document;
+            if (!TryBuildValidatedDocument(out document))
+            {
+                return;
+            }
+            try
+            {
+                _templateStore.SaveDefault(document);
+                _status.Text = "应用状态：当前模板已保存为默认预设。";
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "无法保存默认预设",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -802,17 +890,64 @@ namespace T50LabelPrinter
                 {
                     return;
                 }
-                try
-                {
-                    ThermalScheduleDocument document = _templateStore.Load(dialog.FileName);
-                    LoadDocument(document);
-                    _status.Text = "应用状态：日程模板已加载 — " + dialog.FileName;
-                }
-                catch (Exception exception)
-                {
-                    MessageBox.Show(this, exception.Message, "无法加载日程模板",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                OpenTemplateFile(dialog.FileName);
+            }
+        }
+
+        public bool OpenTemplateFile(string fileName)
+        {
+            try
+            {
+                ThermalScheduleDocument document = _templateStore.Load(fileName);
+                LoadDocument(document);
+                SetCurrentFilePath(Path.GetFullPath(fileName));
+                _status.Text = "应用状态：日程文件已加载 — " + _currentFilePath;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "无法加载日程模板",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+        }
+
+        private bool TryBuildValidatedDocument(out ThermalScheduleDocument document)
+        {
+            document = null;
+            try
+            {
+                document = BuildDocument(true);
+                using (Bitmap validation = ThermalScheduleRenderer.Render(document)) { }
+                return true;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "日程内容无效",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+        }
+
+        private void SaveDocumentToPath(
+            string fileName,
+            ThermalScheduleDocument document,
+            string successText)
+        {
+            _templateStore.Save(fileName, document);
+            SetCurrentFilePath(Path.GetFullPath(fileName));
+            _status.Text = "应用状态：" + successText + " — " + _currentFilePath;
+        }
+
+        private void SetCurrentFilePath(string fileName)
+        {
+            _currentFilePath = string.IsNullOrWhiteSpace(fileName) ? null : fileName;
+            if (_currentFileLabel != null)
+            {
+                _currentFileLabel.Text = string.IsNullOrWhiteSpace(_currentFilePath)
+                    ? "未保存"
+                    : Path.GetFileName(_currentFilePath);
+                _currentFileLabel.AccessibleDescription = _currentFilePath ?? string.Empty;
             }
         }
 
@@ -920,6 +1055,11 @@ namespace T50LabelPrinter
             _date.Enabled = !document.AutoDate;
             _showDate.Checked = document.ShowDate;
             _showCheckboxes.Checked = document.ShowCheckboxes;
+            _showCountdown.Checked = document.ShowCountdown;
+            _countdownName.Text = document.CountdownName;
+            _countdownDate.Value = document.CountdownDate;
+            _countdownName.Enabled = document.ShowCountdown;
+            _countdownDate.Enabled = document.ShowCountdown;
             _showCompletedColumn = true;
             _showTimeColumn = document.ShowTime;
             _showContentColumn = document.ShowContent;
@@ -968,6 +1108,9 @@ namespace T50LabelPrinter
                 MarginMm = _margin.Value,
                 RowSpacingMm = _rowSpacing.Value,
                 Copies = Decimal.ToInt32(_copies.Value),
+                ShowCountdown = _showCountdown.Checked,
+                CountdownName = _countdownName.Text,
+                CountdownDate = _countdownDate.Value.Date,
                 Items = new List<ThermalScheduleItem>()
             };
             foreach (DataGridViewRow row in _items.Rows)
@@ -1252,6 +1395,9 @@ namespace T50LabelPrinter
             _autoDate.Enabled = enabled;
             _showDate.Enabled = enabled;
             _showCheckboxes.Enabled = enabled;
+            _showCountdown.Enabled = enabled;
+            _countdownName.Enabled = enabled;
+            _countdownDate.Enabled = enabled;
             _fontFamily.Enabled = enabled;
             _titleFontSize.Enabled = enabled;
             _bodyFontSize.Enabled = enabled;
@@ -1263,6 +1409,8 @@ namespace T50LabelPrinter
             if (enabled)
             {
                 _date.Enabled = !_autoDate.Checked;
+                _countdownName.Enabled = _showCountdown.Checked;
+                _countdownDate.Enabled = _showCountdown.Checked;
             }
         }
 

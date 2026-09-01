@@ -2,7 +2,7 @@
 
 这是一个面向硕方 T50 Pro 标签打印机和通用 58mm 热敏打印机的 Windows 桌面程序，使用原生 WinForms 控件编写。T50 Pro 通过 USB 数据线调用硕方提供的 `Supvan.T50PRO.SDK.dll`；58mm 日程打印通过 Windows 已安装的打印机驱动工作。项目不引入大型界面框架，标签打印与日程打印分别维护独立的设备页、数据模型和打印链路。
 
-当前 Release 版本：`v1.4.1`
+当前 Release 版本：`v1.5.0`
 
 仓库地址：<https://github.com/zlight-GA106/T50LabelPrinter>
 Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
@@ -79,7 +79,10 @@ dragon.png
 - 双击表格中的时间或日程内容可直接编辑；双击预览顶部可快速编辑标题，双击正文区域可编辑当前选中的日程。
 - 在表格列标题上单击右键可删除该列；“恢复全部列”会重新显示完成、时间和日程内容列，隐藏列的数据不会丢失。
 - 日程文本和标题的右键菜单支持字体、字号、加粗与斜体。日程页不支持的 Data Matrix、PDF417 操作会以禁用状态显示。
-- “导出日程模板”会保存当前排版、日期规则、列状态、文字样式和全部日程行；“加载日程模板”可以把 `.t58schedule` 文件恢复到日程页面继续编辑或打印。
+- “保存文件”会覆盖当前打开的 `.t58schedule` 文件，首次保存时自动进入另存为；也可以使用 `Ctrl+S`。“另存为模板”和“加载模板”用于切换文件。
+- “设为默认预设”会把当前排版、日期规则、倒数日、列状态、文字样式和全部日程行保存到当前 Windows 用户配置中，以后正常启动软件时自动载入。
+- 勾选“打印倒数日”并填写目标名称、目标日期后，预览和打印会按当前日程日期生成“还有 N 天”“今天是……”或“已过去 N 天”。
+- 将 `.t58schedule` 文件拖到 `T50LabelPrinter.exe` 或其桌面快捷方式上，可以直接启动软件、切换到 58mm 日程页并加载该文件。
 - 编辑日程单元格时，实时预览会等待本次输入结束，不会提交或中断正在输入的文字。
 
 ## 编辑操作
@@ -181,6 +184,7 @@ ThermalScheduleModels.cs     日程与条目数据模型
 ThermalScheduleRenderer.cs   58mm 动态纸长排版与渲染
 ThermalSchedulePreview.cs    可滚动日程预览控件
 ThermalSchedulePage.cs       独立日程设备页面与交互
+ThermalScheduleTemplateStore.cs  日程文件、版本校验和默认预设存储
 ImageAssetService.cs         图片嵌入、缩放和单色转换
 ApplicationSettingsStore.cs  当前用户的纸张默认值
 ```

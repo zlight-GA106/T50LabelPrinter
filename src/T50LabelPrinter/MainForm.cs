@@ -36,6 +36,10 @@ namespace T50LabelPrinter
 
         private TabControl _tabs;
         private LabelCanvas _canvas;
+        private TabControl _devicePages;
+        private TabPage _scheduleDevicePage;
+        private ThermalSchedulePage _thermalSchedulePage;
+        private readonly string _startupScheduleFile;
 
         private NumericUpDown _labelWidth;
         private NumericUpDown _labelHeight;
@@ -86,7 +90,13 @@ namespace T50LabelPrinter
         private Label _sdkStatusLine;
 
         public MainForm()
+            : this(null)
         {
+        }
+
+        public MainForm(string startupScheduleFile)
+        {
+            _startupScheduleFile = startupScheduleFile;
             Text = "硕方t50pro打印上位机（by zlight106）";
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(900, 640);
@@ -149,6 +159,10 @@ namespace T50LabelPrinter
             _timer.Start();
 
             Shown += async (sender, args) => await ScanDevicesAsync();
+            if (!string.IsNullOrWhiteSpace(_startupScheduleFile))
+            {
+                Shown += (sender, args) => OpenStartupScheduleFile();
+            }
             FormClosing += MainFormClosing;
             FormClosed += MainFormClosed;
         }
@@ -209,16 +223,16 @@ namespace T50LabelPrinter
 
         private void BuildInterface()
         {
-            TabControl devicePages = new TabControl
+            _devicePages = new TabControl
             {
                 Dock = DockStyle.Fill,
                 Padding = new Point(18, 5)
             };
             TabPage t50Page = new TabPage("T50 Pro 标签打印") { Padding = new Padding(0) };
-            TabPage schedulePage = new TabPage("58mm 日程打印") { Padding = new Padding(0) };
-            devicePages.TabPages.Add(t50Page);
-            devicePages.TabPages.Add(schedulePage);
-            Controls.Add(devicePages);
+            _scheduleDevicePage = new TabPage("58mm 日程打印") { Padding = new Padding(0) };
+            _devicePages.TabPages.Add(t50Page);
+            _devicePages.TabPages.Add(_scheduleDevicePage);
+            Controls.Add(_devicePages);
 
             TableLayoutPanel root = new TableLayoutPanel
             {
@@ -284,7 +298,36 @@ namespace T50LabelPrinter
 
             root.Controls.Add(CreatePrintPanel(), 0, 2);
 
-            schedulePage.Controls.Add(new ThermalSchedulePage { Dock = DockStyle.Fill });
+            _thermalSchedulePage = new ThermalSchedulePage { Dock = DockStyle.Fill };
+            _scheduleDevicePage.Controls.Add(_thermalSchedulePage);
+        }
+
+        private void OpenStartupScheduleFile()
+        {
+            if (_thermalSchedulePage == null ||
+                !ThermalScheduleTemplateStore.IsSupportedFile(_startupScheduleFile))
+            {
+                return;
+            }
+            if (_thermalSchedulePage.OpenTemplateFile(_startupScheduleFile))
+            {
+                _devicePages.SelectedTab = _scheduleDevicePage;
+                Text = "硕方t50pro打印上位机（by zlight106） — " +
+                    Path.GetFileName(_startupScheduleFile);
+            }
+        }
+
+        protected override bool ProcessCmdKey(ref Message message, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.S) &&
+                _devicePages != null &&
+                _devicePages.SelectedTab == _scheduleDevicePage &&
+                _thermalSchedulePage != null)
+            {
+                _thermalSchedulePage.SaveCurrentFile();
+                return true;
+            }
+            return base.ProcessCmdKey(ref message, keyData);
         }
 
         private Control CreateDevicePanel()

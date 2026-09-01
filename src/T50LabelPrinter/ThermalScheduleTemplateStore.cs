@@ -15,6 +15,36 @@ namespace T50LabelPrinter
         private static readonly DataContractJsonSerializer Serializer =
             new DataContractJsonSerializer(typeof(ThermalScheduleTemplateEnvelope));
 
+        public static string DefaultTemplatePath
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "T50LabelPrinter",
+                    "default-schedule." + FileExtension);
+            }
+        }
+
+        public static bool IsSupportedFile(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                return false;
+            }
+            try
+            {
+                return string.Equals(
+                    Path.GetExtension(fileName),
+                    "." + FileExtension,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
         public void Save(string fileName, ThermalScheduleDocument document)
         {
             if (string.IsNullOrWhiteSpace(fileName))
@@ -32,6 +62,11 @@ namespace T50LabelPrinter
                 Version = CurrentVersion,
                 Document = document.DeepClone()
             };
+            string directory = Path.GetDirectoryName(Path.GetFullPath(fileName));
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
             using (FileStream stream = new FileStream(
                 fileName, FileMode.Create, FileAccess.Write, FileShare.None))
             {
@@ -73,6 +108,37 @@ namespace T50LabelPrinter
             ThermalScheduleDocument document = envelope.Document.DeepClone();
             document.Normalize();
             return document;
+        }
+
+        public void SaveDefault(ThermalScheduleDocument document)
+        {
+            Save(DefaultTemplatePath, document);
+        }
+
+        public bool TryLoadDefault(out ThermalScheduleDocument document)
+        {
+            document = null;
+            try
+            {
+                if (!File.Exists(DefaultTemplatePath))
+                {
+                    return false;
+                }
+                document = Load(DefaultTemplatePath);
+                return document != null;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+            catch (SerializationException)
+            {
+                return false;
+            }
         }
 
         [DataContract]

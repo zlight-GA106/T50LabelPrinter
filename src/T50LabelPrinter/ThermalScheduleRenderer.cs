@@ -76,6 +76,12 @@ namespace T50LabelPrinter
                 y += MeasureSingleLineHeight(date, graphics, fonts.Date, metrics.ContentWidth) +
                     MillimetersToPixels(0.8m);
             }
+            if (document.ShowCountdown)
+            {
+                y += MeasureSingleLineHeight(
+                    document.GetCountdownText(), graphics, fonts.Countdown, metrics.ContentWidth) +
+                    MillimetersToPixels(0.8m);
+            }
             y += MillimetersToPixels(0.8m);
 
             IList<ThermalScheduleItem> items = GetVisibleItems(document);
@@ -118,6 +124,16 @@ namespace T50LabelPrinter
                     graphics.DrawString(date, fonts.Date, Brushes.Black,
                         new RectangleF(metrics.Margin, y, metrics.ContentWidth, dateHeight), centered);
                     y += dateHeight + MillimetersToPixels(0.8m);
+                }
+
+                if (document.ShowCountdown)
+                {
+                    string countdown = document.GetCountdownText();
+                    float countdownHeight = MeasureSingleLineHeight(
+                        countdown, graphics, fonts.Countdown, metrics.ContentWidth);
+                    graphics.DrawString(countdown, fonts.Countdown, Brushes.Black,
+                        new RectangleF(metrics.Margin, y, metrics.ContentWidth, countdownHeight), centered);
+                    y += countdownHeight + MillimetersToPixels(0.8m);
                 }
 
                 graphics.DrawLine(separator, metrics.Margin, y, paperWidth - metrics.Margin, y);
@@ -287,6 +303,7 @@ namespace T50LabelPrinter
         {
             public Font Title { get; private set; }
             public Font Date { get; private set; }
+            public Font Countdown { get; private set; }
 
             public static ScheduleFonts Create(ThermalScheduleDocument document)
             {
@@ -301,7 +318,8 @@ namespace T50LabelPrinter
                 return new ScheduleFonts
                 {
                     Title = CreateFont(titleFamily, titleSize, titleStyle),
-                    Date = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.82f), FontStyle.Regular)
+                    Date = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.82f), FontStyle.Regular),
+                    Countdown = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.95f), FontStyle.Bold)
                 };
             }
 
@@ -322,6 +340,7 @@ namespace T50LabelPrinter
             {
                 if (Title != null) Title.Dispose();
                 if (Date != null) Date.Dispose();
+                if (Countdown != null) Countdown.Dispose();
             }
 
             private static Font CreateFont(string requestedFamily, float size, FontStyle style)
