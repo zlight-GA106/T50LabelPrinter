@@ -1,9 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 
 namespace T50LabelPrinter
 {
+    [DataContract]
+    public enum ThermalScheduleItemKind
+    {
+        [EnumMember]
+        Schedule = 0,
+
+        [EnumMember]
+        Countdown = 1
+    }
+
     [DataContract]
     public sealed class ThermalScheduleItem
     {
@@ -21,6 +32,25 @@ namespace T50LabelPrinter
         public bool Bold { get; set; }
         [DataMember(Order = 7)]
         public bool Italic { get; set; }
+        [DataMember(Order = 8)]
+        public ThermalScheduleItemKind Kind { get; set; }
+        [DataMember(Order = 9)]
+        public DateTime TargetDate { get; set; }
+
+        public string GetCountdownText(DateTime baseDate)
+        {
+            string name = string.IsNullOrWhiteSpace(Content) ? "目标日" : Content.Trim();
+            int days = (TargetDate.Date - baseDate.Date).Days;
+            if (days > 0)
+            {
+                return "距离" + name + "还有 " + days + " 天";
+            }
+            if (days == 0)
+            {
+                return "今天是" + name;
+            }
+            return name + "已过去 " + Math.Abs((long)days) + " 天";
+        }
 
         public ThermalScheduleItem DeepClone()
         {
@@ -32,7 +62,9 @@ namespace T50LabelPrinter
                 FontFamily = FontFamily ?? string.Empty,
                 FontSizeMm = FontSizeMm,
                 Bold = Bold,
-                Italic = Italic
+                Italic = Italic,
+                Kind = Kind,
+                TargetDate = TargetDate
             };
         }
     }
@@ -77,13 +109,14 @@ namespace T50LabelPrinter
         [DataMember(Order = 17)]
         public List<ThermalScheduleItem> Items { get; set; }
 
-        [DataMember(Order = 18)]
+        // v1.5.0 及更早版本使用的单一倒数日字段。读取后会迁移成 Countdown 行。
+        [DataMember(Order = 18, EmitDefaultValue = false)]
         public bool ShowCountdown { get; set; }
 
-        [DataMember(Order = 19)]
+        [DataMember(Order = 19, EmitDefaultValue = false)]
         public string CountdownName { get; set; }
 
-        [DataMember(Order = 20)]
+        [DataMember(Order = 20, EmitDefaultValue = false)]
         public DateTime CountdownDate { get; set; }
 
         public static ThermalScheduleDocument CreateDefault()
@@ -106,9 +139,6 @@ namespace T50LabelPrinter
                 MarginMm = 3m,
                 RowSpacingMm = 1.2m,
                 Copies = 1,
-                ShowCountdown = false,
-                CountdownName = "目标日",
-                CountdownDate = DateTime.Today.AddDays(7),
                 Items = new List<ThermalScheduleItem>
                 {
                     new ThermalScheduleItem { Time = "09:00", Content = "填写日程内容" },
@@ -139,20 +169,42 @@ namespace T50LabelPrinter
             MarginMm = Math.Max(1m, Math.Min(10m, MarginMm));
             RowSpacingMm = Math.Max(0.4m, Math.Min(6m, RowSpacingMm));
             Copies = Math.Max(1, Math.Min(99, Copies));
-            CountdownName = Limit((CountdownName ?? string.Empty).Trim(), 80);
-            if (string.IsNullOrWhiteSpace(CountdownName))
-            {
-                CountdownName = "目标日";
-            }
-            if (CountdownDate.Year < 1753 || CountdownDate.Year > 9998)
-            {
-                CountdownDate = DateTime.Today;
-            }
             if (Items == null)
             {
                 Items = new List<ThermalScheduleItem>();
             }
             Items.RemoveAll(item => item == null);
+
+            if (ShowCountdown)
+            {
+                string legacyName = Limit((CountdownName ?? string.Empty).Trim(), 80);
+                if (string.IsNullOrWhiteSpace(legacyName))
+                {
+                    legacyName = "目标日";
+                }
+                DateTime legacyDate = IsValidDate(CountdownDate)
+                    ? CountdownDate.Date
+                    : Date.AddDays(7).Date;
+                bool alreadyMigrated = Items.Any(item =>
+                    item.Kind == ThermalScheduleItemKind.Countdown &&
+                    item.TargetDate.Date == legacyDate &&
+                    string.Equals((item.Content ?? string.Empty).Trim(), legacyName,
+                        StringComparison.Ordinal));
+                if (!alreadyMigrated)
+                {
+                    Items.Add(new ThermalScheduleItem
+                    {
+                        Kind = ThermalScheduleItemKind.Countdown,
+                        Content = legacyName,
+                        TargetDate = legacyDate,
+                        Bold = true
+                    });
+                }
+            }
+            ShowCountdown = false;
+            CountdownName = null;
+            CountdownDate = default(DateTime);
+
             if (Items.Count > 200)
             {
                 Items.RemoveRange(200, Items.Count - 200);
@@ -166,21 +218,38 @@ namespace T50LabelPrinter
                 {
                     item.FontSizeMm = Math.Max(1.8m, Math.Min(8m, item.FontSizeMm));
                 }
+                if (item.Kind != ThermalScheduleItemKind.Schedule &&
+                    item.Kind != ThermalScheduleItemKind.Countdown)
+                {
+                    item.Kind = ThermalScheduleItemKind.Schedule;
+                }
+                if (item.Kind == ThermalScheduleItemKind.Countdown)
+                {
+                    if (string.IsNullOrWhiteSpace(item.Content))
+                    {
+                        item.Content = "目标日";
+                    }
+                    if (!IsValidDate(item.TargetDate))
+                    {
+                        item.TargetDate = Date.AddDays(7).Date;
+                    }
+                }
             }
         }
 
+        [Obsolete("请使用 ThermalScheduleItem.GetCountdownText(DateTime)。")]
         public string GetCountdownText()
         {
-            int days = (CountdownDate.Date - Date.Date).Days;
-            if (days > 0)
+            return new ThermalScheduleItem
             {
-                return "距离" + CountdownName + "还有 " + days + " 天";
-            }
-            if (days == 0)
-            {
-                return "今天是" + CountdownName;
-            }
-            return CountdownName + "已过去 " + Math.Abs((long)days) + " 天";
+                Content = string.IsNullOrWhiteSpace(CountdownName) ? "目标日" : CountdownName,
+                TargetDate = IsValidDate(CountdownDate) ? CountdownDate : Date
+            }.GetCountdownText(Date);
+        }
+
+        private static bool IsValidDate(DateTime value)
+        {
+            return value.Year >= 1753 && value.Year <= 9998;
         }
 
         private static string Limit(string value, int maximumLength)

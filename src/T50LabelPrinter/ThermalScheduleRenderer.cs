@@ -76,12 +76,6 @@ namespace T50LabelPrinter
                 y += MeasureSingleLineHeight(date, graphics, fonts.Date, metrics.ContentWidth) +
                     MillimetersToPixels(0.8m);
             }
-            if (document.ShowCountdown)
-            {
-                y += MeasureSingleLineHeight(
-                    document.GetCountdownText(), graphics, fonts.Countdown, metrics.ContentWidth) +
-                    MillimetersToPixels(0.8m);
-            }
             y += MillimetersToPixels(0.8m);
 
             IList<ThermalScheduleItem> items = GetVisibleItems(document);
@@ -105,6 +99,7 @@ namespace T50LabelPrinter
             LayoutMetrics metrics = LayoutMetrics.Create(document, paperWidth);
             float y = metrics.Margin;
             using (StringFormat centered = CreateSingleLineFormat(StringAlignment.Center))
+            using (StringFormat centeredParagraph = CreateStringFormat(StringAlignment.Center, StringAlignment.Near))
             using (StringFormat left = CreateStringFormat(StringAlignment.Near, StringAlignment.Near))
             using (Pen separator = new Pen(Color.Black, Math.Max(1f, DotsPerMm * 0.12f)))
             {
@@ -126,16 +121,6 @@ namespace T50LabelPrinter
                     y += dateHeight + MillimetersToPixels(0.8m);
                 }
 
-                if (document.ShowCountdown)
-                {
-                    string countdown = document.GetCountdownText();
-                    float countdownHeight = MeasureSingleLineHeight(
-                        countdown, graphics, fonts.Countdown, metrics.ContentWidth);
-                    graphics.DrawString(countdown, fonts.Countdown, Brushes.Black,
-                        new RectangleF(metrics.Margin, y, metrics.ContentWidth, countdownHeight), centered);
-                    y += countdownHeight + MillimetersToPixels(0.8m);
-                }
-
                 graphics.DrawLine(separator, metrics.Margin, y, paperWidth - metrics.Margin, y);
                 y += MillimetersToPixels(0.8m);
 
@@ -147,35 +132,44 @@ namespace T50LabelPrinter
                         float contentY = y + metrics.RowPadding;
                         float x = metrics.Margin;
 
-                        if (document.ShowCheckboxes)
+                        if (item.Kind == ThermalScheduleItemKind.Countdown)
                         {
-                            float boxSize = metrics.CheckboxSize;
-                            float boxY = contentY + Math.Max(0f, (itemFont.GetHeight(graphics) - boxSize) / 2f);
-                            graphics.DrawRectangle(separator, x, boxY, boxSize, boxSize);
-                            if (item.Completed)
+                            graphics.DrawString(item.GetCountdownText(document.Date), itemFont, Brushes.Black,
+                                new RectangleF(metrics.Margin, contentY, metrics.ContentWidth,
+                                    rowHeight - metrics.RowPadding * 2f), centeredParagraph);
+                        }
+                        else
+                        {
+                            if (document.ShowCheckboxes)
                             {
-                                graphics.DrawLine(separator, x + boxSize * 0.18f, boxY + boxSize * 0.55f,
-                                    x + boxSize * 0.43f, boxY + boxSize * 0.8f);
-                                graphics.DrawLine(separator, x + boxSize * 0.43f, boxY + boxSize * 0.8f,
-                                    x + boxSize * 0.86f, boxY + boxSize * 0.2f);
+                                float boxSize = metrics.CheckboxSize;
+                                float boxY = contentY + Math.Max(0f, (itemFont.GetHeight(graphics) - boxSize) / 2f);
+                                graphics.DrawRectangle(separator, x, boxY, boxSize, boxSize);
+                                if (item.Completed)
+                                {
+                                    graphics.DrawLine(separator, x + boxSize * 0.18f, boxY + boxSize * 0.55f,
+                                        x + boxSize * 0.43f, boxY + boxSize * 0.8f);
+                                    graphics.DrawLine(separator, x + boxSize * 0.43f, boxY + boxSize * 0.8f,
+                                        x + boxSize * 0.86f, boxY + boxSize * 0.2f);
+                                }
+                                x += boxSize + metrics.ColumnGap;
                             }
-                            x += boxSize + metrics.ColumnGap;
-                        }
 
-                        if (document.ShowTime)
-                        {
-                            graphics.DrawString(item.Time ?? string.Empty, itemFont, Brushes.Black,
-                                new RectangleF(x, contentY, metrics.TimeWidth,
-                                    rowHeight - metrics.RowPadding * 2f), left);
-                            x += metrics.TimeWidth + metrics.ColumnGap;
-                        }
+                            if (document.ShowTime)
+                            {
+                                graphics.DrawString(item.Time ?? string.Empty, itemFont, Brushes.Black,
+                                    new RectangleF(x, contentY, metrics.TimeWidth,
+                                        rowHeight - metrics.RowPadding * 2f), left);
+                                x += metrics.TimeWidth + metrics.ColumnGap;
+                            }
 
-                        if (document.ShowContent)
-                        {
-                            graphics.DrawString(string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content,
-                                itemFont, Brushes.Black,
-                                new RectangleF(x, contentY, metrics.ContentTextWidth,
-                                    rowHeight - metrics.RowPadding * 2f), left);
+                            if (document.ShowContent)
+                            {
+                                graphics.DrawString(string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content,
+                                    itemFont, Brushes.Black,
+                                    new RectangleF(x, contentY, metrics.ContentTextWidth,
+                                        rowHeight - metrics.RowPadding * 2f), left);
+                            }
                         }
 
                         y += rowHeight;
@@ -189,7 +183,9 @@ namespace T50LabelPrinter
         {
             List<ThermalScheduleItem> items = document.Items
                 .Where(item => item != null &&
-                    (!string.IsNullOrWhiteSpace(item.Time) || !string.IsNullOrWhiteSpace(item.Content)))
+                    (item.Kind == ThermalScheduleItemKind.Countdown ||
+                     !string.IsNullOrWhiteSpace(item.Time) ||
+                     !string.IsNullOrWhiteSpace(item.Content)))
                 .ToList();
             if (items.Count == 0)
             {
@@ -205,11 +201,18 @@ namespace T50LabelPrinter
             Font font,
             LayoutMetrics metrics)
         {
-            string content = document.ShowContent
-                ? (string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content)
-                : (document.ShowTime ? item.Time ?? string.Empty : string.Empty);
-            float availableWidth = document.ShowContent ? metrics.ContentTextWidth : metrics.TimeWidth;
-            using (StringFormat format = CreateStringFormat(StringAlignment.Near, StringAlignment.Near))
+            bool countdown = item.Kind == ThermalScheduleItemKind.Countdown;
+            string content = countdown
+                ? item.GetCountdownText(document.Date)
+                : (document.ShowContent
+                    ? (string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content)
+                    : (document.ShowTime ? item.Time ?? string.Empty : string.Empty));
+            float availableWidth = countdown
+                ? metrics.ContentWidth
+                : (document.ShowContent ? metrics.ContentTextWidth : metrics.TimeWidth);
+            using (StringFormat format = CreateStringFormat(
+                countdown ? StringAlignment.Center : StringAlignment.Near,
+                StringAlignment.Near))
             {
                 SizeF measured = graphics.MeasureString(content, font,
                     new SizeF(availableWidth, MillimetersToPixels(500m)), format);
@@ -303,7 +306,6 @@ namespace T50LabelPrinter
         {
             public Font Title { get; private set; }
             public Font Date { get; private set; }
-            public Font Countdown { get; private set; }
 
             public static ScheduleFonts Create(ThermalScheduleDocument document)
             {
@@ -318,8 +320,7 @@ namespace T50LabelPrinter
                 return new ScheduleFonts
                 {
                     Title = CreateFont(titleFamily, titleSize, titleStyle),
-                    Date = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.82f), FontStyle.Regular),
-                    Countdown = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.95f), FontStyle.Bold)
+                    Date = CreateFont(document.FontFamily, Math.Max(8f, bodySize * 0.82f), FontStyle.Regular)
                 };
             }
 
@@ -330,9 +331,9 @@ namespace T50LabelPrinter
                     : item.FontFamily;
                 decimal sizeMm = item.FontSizeMm > 0m ? item.FontSizeMm : document.BodyFontSizeMm;
                 FontStyle style = FontStyle.Regular;
-                if (item.Bold) style |= FontStyle.Bold;
+                if (item.Bold || item.Kind == ThermalScheduleItemKind.Countdown) style |= FontStyle.Bold;
                 if (item.Italic) style |= FontStyle.Italic;
-                if (item.Completed) style |= FontStyle.Strikeout;
+                if (item.Completed && item.Kind == ThermalScheduleItemKind.Schedule) style |= FontStyle.Strikeout;
                 return CreateFont(family, (float)sizeMm * DotsPerMm, style);
             }
 
@@ -340,7 +341,6 @@ namespace T50LabelPrinter
             {
                 if (Title != null) Title.Dispose();
                 if (Date != null) Date.Dispose();
-                if (Countdown != null) Countdown.Dispose();
             }
 
             private static Font CreateFont(string requestedFamily, float size, FontStyle style)

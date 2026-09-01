@@ -11,6 +11,9 @@ namespace T50LabelPrinter
 {
     public sealed class ThermalSchedulePage : UserControl
     {
+        private const string ScheduleTypeText = "日程";
+        private const string CountdownTypeText = "目标日";
+
         private readonly ThermalPrinterService _printerService = new ThermalPrinterService();
         private readonly ThermalScheduleTemplateStore _templateStore = new ThermalScheduleTemplateStore();
         private readonly Timer _previewTimer = new Timer { Interval = 160 };
@@ -22,9 +25,6 @@ namespace T50LabelPrinter
         private CheckBox _autoDate;
         private CheckBox _showDate;
         private CheckBox _showCheckboxes;
-        private CheckBox _showCountdown;
-        private TextBox _countdownName;
-        private DateTimePicker _countdownDate;
         private ComboBox _fontFamily;
         private NumericUpDown _titleFontSize;
         private NumericUpDown _bodyFontSize;
@@ -177,7 +177,7 @@ namespace T50LabelPrinter
                 RowCount = 3,
                 Padding = new Padding(8)
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 318f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 252f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.Controls.Add(CreateScheduleSettings(), 0, 0);
@@ -188,18 +188,20 @@ namespace T50LabelPrinter
                 WrapContents = true,
                 Padding = new Padding(0, 4, 0, 2)
             };
-            Button addTitle = CreateToolButton("+ 标题", 72);
-            Button add = CreateToolButton("+ 日程", 76);
-            Button remove = CreateToolButton("删除", 58);
-            Button up = CreateToolButton("上移", 56);
-            Button down = CreateToolButton("下移", 56);
-            Button sample = CreateToolButton("恢复示例", 76);
-            Button saveFile = CreateToolButton("保存文件", 82);
-            Button saveTemplate = CreateToolButton("另存为模板…", 108);
-            Button loadTemplate = CreateToolButton("加载模板…", 96);
-            Button saveDefault = CreateToolButton("设为默认预设", 110);
+            Button addTitle = CreateToolButton("+ 标题", 64);
+            Button add = CreateToolButton("+ 日程", 68);
+            Button addCountdown = CreateToolButton("+ 目标日", 78);
+            Button remove = CreateToolButton("删除", 52);
+            Button up = CreateToolButton("上移", 50);
+            Button down = CreateToolButton("下移", 50);
+            Button sample = CreateToolButton("恢复示例", 70);
+            Button saveFile = CreateToolButton("保存文件", 76);
+            Button saveTemplate = CreateToolButton("另存为模板…", 98);
+            Button loadTemplate = CreateToolButton("加载模板…", 88);
+            Button saveDefault = CreateToolButton("设为默认预设", 104);
             addTitle.Click += (sender, args) => EditTitle();
             add.Click += (sender, args) => AddScheduleItem();
+            addCountdown.Click += (sender, args) => AddCountdownItem();
             remove.Click += (sender, args) => RemoveSelectedItem();
             up.Click += (sender, args) => MoveSelectedItem(-1);
             down.Click += (sender, args) => MoveSelectedItem(1);
@@ -210,6 +212,7 @@ namespace T50LabelPrinter
             saveDefault.Click += (sender, args) => SaveDefaultPreset();
             tools.Controls.Add(addTitle);
             tools.Controls.Add(add);
+            tools.Controls.Add(addCountdown);
             tools.Controls.Add(remove);
             tools.Controls.Add(up);
             tools.Controls.Add(down);
@@ -234,27 +237,45 @@ namespace T50LabelPrinter
                 MultiSelect = false,
                 EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2
             };
+            DataGridViewComboBoxColumn typeColumn = new DataGridViewComboBoxColumn
+            {
+                Name = "Type",
+                HeaderText = "类型",
+                Width = 70,
+                FlatStyle = FlatStyle.System,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            };
+            typeColumn.Items.AddRange(ScheduleTypeText, CountdownTypeText);
+            _items.Columns.Add(typeColumn);
             _items.Columns.Add(new DataGridViewCheckBoxColumn
             {
                 Name = "Completed",
                 HeaderText = "完成",
-                Width = 52,
+                Width = 50,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             });
             _items.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "Time",
                 HeaderText = "时间",
-                Width = 76,
+                Width = 60,
                 MaxInputLength = 20,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             });
             _items.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "Content",
-                HeaderText = "日程内容",
+                HeaderText = "内容 / 目标名称",
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
                 MaxInputLength = 500,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            });
+            _items.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "TargetDate",
+                HeaderText = "目标日期",
+                Width = 92,
+                MaxInputLength = 10,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             });
             _scheduleContextMenu = CreateScheduleContextMenu();
@@ -270,16 +291,16 @@ namespace T50LabelPrinter
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 4,
-                RowCount = 8,
+                RowCount = 6,
                 Padding = new Padding(8, 5, 8, 5)
             };
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86f));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52f));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104f));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48f));
-            for (int row = 0; row < 8; row++)
+            for (int row = 0; row < 6; row++)
             {
-                table.RowStyles.Add(new RowStyle(SizeType.Percent, 12.5f));
+                table.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 6f));
             }
 
             _title = new TextBox { Dock = DockStyle.Fill, MaxLength = 80 };
@@ -292,14 +313,6 @@ namespace T50LabelPrinter
             _autoDate = new CheckBox { Text = "使用当天日期", Dock = DockStyle.Fill, Checked = true };
             _showDate = new CheckBox { Text = "打印日期", Dock = DockStyle.Fill };
             _showCheckboxes = new CheckBox { Text = "打印完成框", Dock = DockStyle.Fill };
-            _showCountdown = new CheckBox { Text = "打印倒数日", Dock = DockStyle.Fill };
-            _countdownName = new TextBox { Dock = DockStyle.Fill, MaxLength = 80 };
-            _countdownDate = new DateTimePicker
-            {
-                Dock = DockStyle.Fill,
-                Format = DateTimePickerFormat.Custom,
-                CustomFormat = "yyyy-MM-dd"
-            };
             _fontFamily = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             foreach (FontOption option in FontCatalog.GetOptions())
             {
@@ -313,12 +326,10 @@ namespace T50LabelPrinter
 
             AddSetting(table, 0, "标题", _title, "日期", _date);
             AddSetting(table, 1, "日期生成", _autoDate, "日期显示", _showDate);
-            AddSetting(table, 2, "倒数日", _showCountdown, "目标日期", _countdownDate);
-            AddSetting(table, 3, "目标名称", _countdownName, "字体", _fontFamily);
-            AddSetting(table, 4, "日程状态", _showCheckboxes, "标题字号 (mm)", _titleFontSize);
-            AddSetting(table, 5, "正文字号 (mm)", _bodyFontSize, "左右边距 (mm)", _margin);
-            AddSetting(table, 6, "行内边距 (mm)", _rowSpacing, "打印份数", _copies);
-            AddSetting(table, 7, "当前文件", CreateCurrentFileLabel(), "", new Panel());
+            AddSetting(table, 2, "日程状态", _showCheckboxes, "字体", _fontFamily);
+            AddSetting(table, 3, "标题字号 (mm)", _titleFontSize, "正文字号 (mm)", _bodyFontSize);
+            AddSetting(table, 4, "左右边距 (mm)", _margin, "行内边距 (mm)", _rowSpacing);
+            AddSetting(table, 5, "打印份数", _copies, "当前文件", CreateCurrentFileLabel());
             group.Controls.Add(table);
             return group;
         }
@@ -440,7 +451,7 @@ namespace T50LabelPrinter
 
             ToolStripMenuItem addDataMatrix = new ToolStripMenuItem("添加 Data Matrix 对象") { Enabled = false };
             ToolStripMenuItem addPdf417 = new ToolStripMenuItem("添加 PDF417 对象") { Enabled = false };
-            _deleteScheduleRowMenu = new ToolStripMenuItem("删除所选日程");
+            _deleteScheduleRowMenu = new ToolStripMenuItem("删除所选项目");
             _deleteScheduleColumnMenu = new ToolStripMenuItem("删除列");
             _restoreScheduleColumnsMenu = new ToolStripMenuItem("恢复全部列");
             _deleteScheduleRowMenu.Click += (sender, args) => DeleteContextObject();
@@ -475,9 +486,6 @@ namespace T50LabelPrinter
             _autoDate.CheckedChanged += AutoDateChanged;
             _showDate.CheckedChanged += ScheduleChanged;
             _showCheckboxes.CheckedChanged += ScheduleChanged;
-            _showCountdown.CheckedChanged += CountdownOptionChanged;
-            _countdownName.TextChanged += ScheduleChanged;
-            _countdownDate.ValueChanged += ScheduleChanged;
             _fontFamily.SelectedIndexChanged += ScheduleChanged;
             _titleFontSize.ValueChanged += ScheduleChanged;
             _bodyFontSize.ValueChanged += ScheduleChanged;
@@ -486,12 +494,14 @@ namespace T50LabelPrinter
             _copies.ValueChanged += ScheduleChanged;
             _items.CellBeginEdit += (sender, args) => _previewTimer.Stop();
             _items.CellEndEdit += (sender, args) => ScheduleChanged(sender, EventArgs.Empty);
-            _items.CellValueChanged += (sender, args) => ScheduleChanged(sender, EventArgs.Empty);
+            _items.CellValueChanged += ItemsCellValueChanged;
             _items.CellDoubleClick += ItemsCellDoubleClick;
             _items.CellMouseDown += ItemsCellMouseDown;
             _items.CurrentCellDirtyStateChanged += (sender, args) =>
             {
-                if (_items.IsCurrentCellDirty && _items.CurrentCell is DataGridViewCheckBoxCell)
+                if (_items.IsCurrentCellDirty &&
+                    (_items.CurrentCell is DataGridViewCheckBoxCell ||
+                     _items.CurrentCell is DataGridViewComboBoxCell))
                 {
                     _items.CommitEdit(DataGridViewDataErrorContexts.Commit);
                 }
@@ -512,10 +522,14 @@ namespace T50LabelPrinter
             ScheduleChanged(sender, args);
         }
 
-        private void CountdownOptionChanged(object sender, EventArgs args)
+        private void ItemsCellValueChanged(object sender, DataGridViewCellEventArgs args)
         {
-            _countdownName.Enabled = _showCountdown.Checked;
-            _countdownDate.Enabled = _showCountdown.Checked;
+            if (args.RowIndex >= 0 && args.RowIndex < _items.Rows.Count &&
+                args.ColumnIndex >= 0 &&
+                string.Equals(_items.Columns[args.ColumnIndex].Name, "Type", StringComparison.Ordinal))
+            {
+                ApplyRowKindStyle(_items.Rows[args.RowIndex]);
+            }
             ScheduleChanged(sender, args);
         }
 
@@ -526,7 +540,7 @@ namespace T50LabelPrinter
                 return;
             }
             DataGridViewColumn column = _items.Columns[args.ColumnIndex];
-            if (!IsTextColumn(column))
+            if (!IsEditableTextColumn(column))
             {
                 return;
             }
@@ -613,7 +627,6 @@ namespace T50LabelPrinter
 
             DataGridViewRow row = GetContextRow();
             bool textSelected = _contextTitle || (row != null && IsTextColumn(_contextColumn));
-            int visibleColumns = _items.Columns.Cast<DataGridViewColumn>().Count(column => column.Visible);
             bool hiddenColumns = _items.Columns.Cast<DataGridViewColumn>().Any(column => !column.Visible);
 
             _loadingScheduleContextMenu = true;
@@ -621,10 +634,10 @@ namespace T50LabelPrinter
             _scheduleFontSizeMenu.Enabled = textSelected && !_printing;
             _scheduleBoldMenu.Enabled = textSelected && !_printing;
             _scheduleItalicMenu.Enabled = textSelected && !_printing;
-            _deleteScheduleRowMenu.Text = _contextTitle ? "删除标题" : "删除所选日程";
+            _deleteScheduleRowMenu.Text = _contextTitle ? "删除标题" : "删除所选项目";
             _deleteScheduleRowMenu.Enabled = (_contextTitle || row != null) && !_printing;
-            _deleteScheduleColumnMenu.Enabled = _contextColumn != null && _contextColumn.Visible &&
-                visibleColumns > 1 && !_printing;
+            _deleteScheduleColumnMenu.Enabled = IsRemovableScheduleColumn(_contextColumn) &&
+                _contextColumn.Visible && !_printing;
             _restoreScheduleColumnsMenu.Enabled = hiddenColumns && !_printing;
 
             ThermalScheduleItem item = row == null ? null : GetRowMetadata(row);
@@ -1055,11 +1068,6 @@ namespace T50LabelPrinter
             _date.Enabled = !document.AutoDate;
             _showDate.Checked = document.ShowDate;
             _showCheckboxes.Checked = document.ShowCheckboxes;
-            _showCountdown.Checked = document.ShowCountdown;
-            _countdownName.Text = document.CountdownName;
-            _countdownDate.Value = document.CountdownDate;
-            _countdownName.Enabled = document.ShowCountdown;
-            _countdownDate.Enabled = document.ShowCountdown;
             _showCompletedColumn = true;
             _showTimeColumn = document.ShowTime;
             _showContentColumn = document.ShowContent;
@@ -1075,8 +1083,17 @@ namespace T50LabelPrinter
             _items.Rows.Clear();
             foreach (ThermalScheduleItem item in document.Items)
             {
-                int rowIndex = _items.Rows.Add(item.Completed, item.Time, item.Content);
-                _items.Rows[rowIndex].Tag = item.DeepClone();
+                int rowIndex = _items.Rows.Add(
+                    GetItemKindText(item.Kind),
+                    item.Completed,
+                    item.Time,
+                    item.Content,
+                    item.Kind == ThermalScheduleItemKind.Countdown
+                        ? item.TargetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                        : string.Empty);
+                DataGridViewRow row = _items.Rows[rowIndex];
+                row.Tag = item.DeepClone();
+                ApplyRowKindStyle(row);
             }
             SyncScheduleColumns();
             _loading = false;
@@ -1108,17 +1125,24 @@ namespace T50LabelPrinter
                 MarginMm = _margin.Value,
                 RowSpacingMm = _rowSpacing.Value,
                 Copies = Decimal.ToInt32(_copies.Value),
-                ShowCountdown = _showCountdown.Checked,
-                CountdownName = _countdownName.Text,
-                CountdownDate = _countdownDate.Value.Date,
                 Items = new List<ThermalScheduleItem>()
             };
             foreach (DataGridViewRow row in _items.Rows)
             {
                 ThermalScheduleItem item = GetRowMetadata(row).DeepClone();
+                item.Kind = ParseItemKind(GetCellValue(row, "Type"));
                 item.Completed = Convert.ToBoolean(GetCellValue(row, "Completed") ?? false);
                 item.Time = Convert.ToString(GetCellValue(row, "Time")) ?? string.Empty;
                 item.Content = Convert.ToString(GetCellValue(row, "Content")) ?? string.Empty;
+                object targetDateValue = GetCellValue(row, "TargetDate");
+                if (item.Kind == ThermalScheduleItemKind.Countdown ||
+                    !string.IsNullOrWhiteSpace(Convert.ToString(targetDateValue)))
+                {
+                    item.TargetDate = ParseTargetDate(
+                        targetDateValue,
+                        item.TargetDate,
+                        document.Date.AddDays(7));
+                }
                 document.Items.Add(item);
             }
             document.Normalize();
@@ -1238,8 +1262,41 @@ namespace T50LabelPrinter
 
         private void AddScheduleItem()
         {
-            int rowIndex = _items.Rows.Add(false, DateTime.Now.ToString("HH:mm"), "新日程");
-            _items.Rows[rowIndex].Tag = new ThermalScheduleItem();
+            int rowIndex = _items.Rows.Add(
+                ScheduleTypeText,
+                false,
+                DateTime.Now.ToString("HH:mm"),
+                "新日程",
+                string.Empty);
+            _items.Rows[rowIndex].Tag = new ThermalScheduleItem
+            {
+                Kind = ThermalScheduleItemKind.Schedule
+            };
+            ApplyRowKindStyle(_items.Rows[rowIndex]);
+            _items.ClearSelection();
+            _items.Rows[rowIndex].Selected = true;
+            _items.CurrentCell = _items.Rows[rowIndex].Cells["Content"];
+            _items.BeginEdit(true);
+            ScheduleChanged(this, EventArgs.Empty);
+        }
+
+        private void AddCountdownItem()
+        {
+            DateTime targetDate = DateTime.Today.AddDays(7);
+            int rowIndex = _items.Rows.Add(
+                CountdownTypeText,
+                false,
+                string.Empty,
+                "目标日",
+                targetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            _items.Rows[rowIndex].Tag = new ThermalScheduleItem
+            {
+                Kind = ThermalScheduleItemKind.Countdown,
+                Content = "目标日",
+                TargetDate = targetDate,
+                Bold = true
+            };
+            ApplyRowKindStyle(_items.Rows[rowIndex]);
             _items.ClearSelection();
             _items.Rows[rowIndex].Selected = true;
             _items.CurrentCell = _items.Rows[rowIndex].Cells["Content"];
@@ -1282,6 +1339,7 @@ namespace T50LabelPrinter
             _items.Rows.RemoveAt(source);
             _items.Rows.Insert(target, values);
             _items.Rows[target].Tag = metadata;
+            ApplyRowKindStyle(_items.Rows[target]);
             _items.ClearSelection();
             _items.Rows[target].Selected = true;
             _items.CurrentCell = _items.Rows[target].Cells["Content"];
@@ -1337,6 +1395,81 @@ namespace T50LabelPrinter
                  string.Equals(column.Name, "Content", StringComparison.Ordinal));
         }
 
+        private static bool IsEditableTextColumn(DataGridViewColumn column)
+        {
+            return IsTextColumn(column) ||
+                (column != null && string.Equals(column.Name, "TargetDate", StringComparison.Ordinal));
+        }
+
+        private static bool IsRemovableScheduleColumn(DataGridViewColumn column)
+        {
+            return column != null &&
+                (string.Equals(column.Name, "Completed", StringComparison.Ordinal) ||
+                 string.Equals(column.Name, "Time", StringComparison.Ordinal) ||
+                 string.Equals(column.Name, "Content", StringComparison.Ordinal));
+        }
+
+        private static string GetItemKindText(ThermalScheduleItemKind kind)
+        {
+            return kind == ThermalScheduleItemKind.Countdown
+                ? CountdownTypeText
+                : ScheduleTypeText;
+        }
+
+        private static ThermalScheduleItemKind ParseItemKind(object value)
+        {
+            return string.Equals(Convert.ToString(value), CountdownTypeText, StringComparison.Ordinal)
+                ? ThermalScheduleItemKind.Countdown
+                : ThermalScheduleItemKind.Schedule;
+        }
+
+        private static DateTime ParseTargetDate(object value, DateTime existingValue, DateTime fallback)
+        {
+            string text = (Convert.ToString(value) ?? string.Empty).Trim();
+            DateTime parsed;
+            if (DateTime.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out parsed) ||
+                DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed) ||
+                DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
+            {
+                return parsed.Date;
+            }
+            if (existingValue.Year >= 1753 && existingValue.Year <= 9998)
+            {
+                return existingValue.Date;
+            }
+            return fallback.Date;
+        }
+
+        private void ApplyRowKindStyle(DataGridViewRow row)
+        {
+            if (row == null)
+            {
+                return;
+            }
+            bool countdown = ParseItemKind(row.Cells["Type"].Value) ==
+                ThermalScheduleItemKind.Countdown;
+            if (countdown && string.IsNullOrWhiteSpace(Convert.ToString(row.Cells["TargetDate"].Value)))
+            {
+                ThermalScheduleItem metadata = GetRowMetadata(row);
+                DateTime target = metadata.TargetDate.Year >= 1753 && metadata.TargetDate.Year <= 9998
+                    ? metadata.TargetDate.Date
+                    : (_autoDate.Checked ? DateTime.Today : _date.Value.Date).AddDays(7);
+                row.Cells["TargetDate"].Value = target.ToString(
+                    "yyyy-MM-dd", CultureInfo.InvariantCulture);
+            }
+            SetRowCellReadOnly(row.Cells["Completed"], countdown);
+            SetRowCellReadOnly(row.Cells["Time"], countdown);
+            SetRowCellReadOnly(row.Cells["TargetDate"], !countdown);
+        }
+
+        private static void SetRowCellReadOnly(DataGridViewCell cell, bool readOnly)
+        {
+            cell.ReadOnly = readOnly;
+            cell.Style.BackColor = readOnly ? SystemColors.Control : SystemColors.Window;
+            cell.Style.ForeColor = readOnly ? SystemColors.GrayText : SystemColors.WindowText;
+        }
+
         private static ThermalScheduleItem GetRowMetadata(DataGridViewRow row)
         {
             ThermalScheduleItem item = row == null ? null : row.Tag as ThermalScheduleItem;
@@ -1361,6 +1494,8 @@ namespace T50LabelPrinter
         {
             DataGridViewColumn firstVisible = _items.Columns.Cast<DataGridViewColumn>()
                 .FirstOrDefault(column =>
+                    column.Name == "Type" ||
+                    column.Name == "TargetDate" ||
                     (column.Name == "Completed" && _showCompletedColumn) ||
                     (column.Name == "Time" && _showTimeColumn) ||
                     (column.Name == "Content" && _showContentColumn));
@@ -1395,9 +1530,6 @@ namespace T50LabelPrinter
             _autoDate.Enabled = enabled;
             _showDate.Enabled = enabled;
             _showCheckboxes.Enabled = enabled;
-            _showCountdown.Enabled = enabled;
-            _countdownName.Enabled = enabled;
-            _countdownDate.Enabled = enabled;
             _fontFamily.Enabled = enabled;
             _titleFontSize.Enabled = enabled;
             _bodyFontSize.Enabled = enabled;
@@ -1409,8 +1541,6 @@ namespace T50LabelPrinter
             if (enabled)
             {
                 _date.Enabled = !_autoDate.Checked;
-                _countdownName.Enabled = _showCountdown.Checked;
-                _countdownDate.Enabled = _showCountdown.Checked;
             }
         }
 
