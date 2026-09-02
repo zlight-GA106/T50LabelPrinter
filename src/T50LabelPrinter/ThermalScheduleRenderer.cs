@@ -99,7 +99,6 @@ namespace T50LabelPrinter
             LayoutMetrics metrics = LayoutMetrics.Create(document, paperWidth);
             float y = metrics.Margin;
             using (StringFormat centered = CreateSingleLineFormat(StringAlignment.Center))
-            using (StringFormat centeredParagraph = CreateStringFormat(StringAlignment.Center, StringAlignment.Near))
             using (StringFormat left = CreateStringFormat(StringAlignment.Near, StringAlignment.Near))
             using (Pen separator = new Pen(Color.Black, Math.Max(1f, DotsPerMm * 0.12f)))
             {
@@ -136,7 +135,7 @@ namespace T50LabelPrinter
                         {
                             graphics.DrawString(item.GetCountdownText(document.Date), itemFont, Brushes.Black,
                                 new RectangleF(metrics.Margin, contentY, metrics.ContentWidth,
-                                    rowHeight - metrics.RowPadding * 2f), centeredParagraph);
+                                    rowHeight - metrics.RowPadding * 2f), left);
                         }
                         else
                         {
@@ -211,7 +210,7 @@ namespace T50LabelPrinter
                 ? metrics.ContentWidth
                 : (document.ShowContent ? metrics.ContentTextWidth : metrics.TimeWidth);
             using (StringFormat format = CreateStringFormat(
-                countdown ? StringAlignment.Center : StringAlignment.Near,
+                StringAlignment.Near,
                 StringAlignment.Near))
             {
                 SizeF measured = graphics.MeasureString(content, font,
