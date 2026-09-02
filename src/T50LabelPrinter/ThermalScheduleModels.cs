@@ -34,7 +34,7 @@ namespace T50LabelPrinter
         public bool Italic { get; set; }
         [DataMember(Order = 8)]
         public ThermalScheduleItemKind Kind { get; set; }
-        [DataMember(Order = 9)]
+        [DataMember(Order = 9, EmitDefaultValue = false)]
         public DateTime TargetDate { get; set; }
 
         public string GetCountdownText(DateTime baseDate)
@@ -233,6 +233,12 @@ namespace T50LabelPrinter
                     {
                         item.TargetDate = Date.AddDays(7).Date;
                     }
+                }
+                else
+                {
+                    // 普通日程没有目标日期。保持默认值并在 JSON 中省略该字段，
+                    // 避免 DateTime.MinValue 在本地时区转 UTC 时发生下溢。
+                    item.TargetDate = default(DateTime);
                 }
             }
         }
