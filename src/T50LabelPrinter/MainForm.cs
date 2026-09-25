@@ -89,7 +89,6 @@ namespace T50LabelPrinter
         private Label _printState;
         private Label _sdkStatusLine;
         private readonly List<Action<float>> _dpiMetricAppliers = new List<Action<float>>();
-        private float _appliedDpiFactor = 1f;
 
         public MainForm()
             : this(null)
@@ -183,7 +182,7 @@ namespace T50LabelPrinter
             AutoScaleMode = AutoScaleMode.Dpi;
             PerformAutoScale();
             // 自动缩放实际使用的比例（Dpi 模式下 CurrentAutoScaleDimensions 等于当前 DPI）。
-            ApplyDpiSensitiveMetrics(Math.Max(1f, CurrentAutoScaleDimensions.Width / 96f));
+            ApplyDpiSensitiveMetrics(CurrentDpiMetricFactor());
         }
 
         // WinForms 的自动缩放不会处理 SplitContainer 的分隔位置和 DataGridView 的
@@ -232,7 +231,7 @@ namespace T50LabelPrinter
                     {
                         if (!movedByUser)
                         {
-                            apply(_appliedDpiFactor);
+                            apply(CurrentDpiMetricFactor());
                         }
                     };
                 }
@@ -263,11 +262,23 @@ namespace T50LabelPrinter
 
         private void ApplyDpiSensitiveMetrics(float factor)
         {
-            _appliedDpiFactor = Math.Max(1f, factor);
+            float applied = Math.Max(1f, factor);
             foreach (Action<float> apply in _dpiMetricAppliers)
             {
-                apply(_appliedDpiFactor);
+                apply(applied);
             }
+        }
+
+        // 当前的 DPI 倍数：优先取控件自身的 DeviceDpi（支持跨显示器切换），
+        // 取不到时退回自动缩放使用的比例。
+        private float CurrentDpiMetricFactor()
+        {
+            int dpi = DeviceDpi;
+            if (dpi > 96)
+            {
+                return dpi / 96f;
+            }
+            return Math.Max(1f, CurrentAutoScaleDimensions.Width / 96f);
         }
 
         private static bool UsesExplicitColumnWidth(DataGridView grid, DataGridViewColumn column)
@@ -528,7 +539,7 @@ namespace T50LabelPrinter
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            ApplyDpiSensitiveMetrics(Math.Max(1f, CurrentAutoScaleDimensions.Width / 96f));
+            ApplyDpiSensitiveMetrics(CurrentDpiMetricFactor());
         }
 
         protected override bool ProcessCmdKey(ref Message message, Keys keyData)
