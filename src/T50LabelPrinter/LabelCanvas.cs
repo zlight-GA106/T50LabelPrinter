@@ -8,7 +8,7 @@ namespace T50LabelPrinter
 {
     public sealed class LabelCanvas : Control
     {
-        private const float MarginPixels = 28f;
+        private const float MarginPixelsAt96Dpi = 28f;
         private LabelDocument _document;
         private LabelElement _selectedElement;
         private bool _dragging;
@@ -20,6 +20,22 @@ namespace T50LabelPrinter
         private LabelElement _editingElement;
         private bool _closingEditor;
         private DateTime _previewTimestamp = DateTime.Now;
+
+        // 画布上的留白、拖拽手柄和 ID 标记需要随 DPI 放大，否则在
+        // 150%/200% 缩放下会小一半、难以点中。
+        private float DpiScale
+        {
+            get
+            {
+                int dpi = DeviceDpi;
+                return dpi <= 96 ? 1f : dpi / 96f;
+            }
+        }
+
+        private float MarginPixels
+        {
+            get { return MarginPixelsAt96Dpi * DpiScale; }
+        }
 
         public bool ReadOnly { get; set; }
         public bool AllowInlineTextEditing { get; set; }
@@ -428,18 +444,18 @@ namespace T50LabelPrinter
             return new PointF((point.X - bounds.X) / scale, (point.Y - bounds.Y) / scale);
         }
 
-        private static RectangleF GetResizeHandle(RectangleF bounds)
+        private RectangleF GetResizeHandle(RectangleF bounds)
         {
-            const float size = 10f;
+            float size = 10f * DpiScale;
             return new RectangleF(bounds.Right - size / 2f, bounds.Bottom - size / 2f, size, size);
         }
 
         private void DrawObjectIdBadge(Graphics graphics, RectangleF bounds, int objectId)
         {
-            const float diameter = 22f;
-            RectangleF badge = new RectangleF(bounds.Right - diameter + 3f, bounds.Top - diameter / 2f, diameter, diameter);
+            float diameter = 22f * DpiScale;
+            RectangleF badge = new RectangleF(bounds.Right - diameter + 3f * DpiScale, bounds.Top - diameter / 2f, diameter, diameter);
             using (Brush fill = new SolidBrush(Color.RoyalBlue))
-            using (Pen border = new Pen(Color.White, 1.5f))
+            using (Pen border = new Pen(Color.White, 1.5f * DpiScale))
             {
                 graphics.FillEllipse(fill, badge);
                 graphics.DrawEllipse(border, badge);

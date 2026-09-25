@@ -61,6 +61,7 @@ namespace T50LabelPrinter
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 142f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
             FlowLayoutPanel importTools = new FlowLayoutPanel
             {

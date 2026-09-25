@@ -10,6 +10,7 @@ Release：<https://github.com/zlight-GA106/T50LabelPrinter/releases>
 ## 功能
 
 - 枚举通过 USB 连接的 T50 Pro，并显示设备是否就绪。
+- 界面随 Windows 显示缩放自动放大：在 150%/200% 等缩放下控件、表格和预览保持同一比例，不会挤压或截断。
 - 显示 SDK 返回的 `State`、`PrintDes`、`ErrorMsg`、已打印页数和总页数。
 - 自定义标签宽度、高度和纸张间隙，标签宽度强制限制为 `5–50 mm`。
 - 支持间隙纸、中间黑标、黑标卡纸、四种打印方向、打印速度、0–9 档浓度、份数和逐份打印。

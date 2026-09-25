@@ -88,6 +88,8 @@ namespace T50LabelPrinter
         private ProgressBar _progress;
         private Label _printState;
         private Label _sdkStatusLine;
+        private readonly List<Action<float>> _dpiMetricAppliers = new List<Action<float>>();
+        private float _appliedDpiFactor = 1f;
 
         public MainForm()
             : this(null)
@@ -99,12 +101,10 @@ namespace T50LabelPrinter
             _startupScheduleFile = startupScheduleFile;
             Text = "硕方t50pro打印上位机（by zlight106）";
             StartPosition = FormStartPosition.CenterScreen;
+            // 以下尺寸都按 96 DPI（100% 缩放）的设计值书写，控件建好后由
+            // ApplyDpiScaling() 按实际 DPI 统一放大；MinimumSize 也会随缩放变大。
             MinimumSize = new Size(900, 640);
-            Rectangle workingArea = Screen.PrimaryScreen.WorkingArea;
-            ClientSize = new Size(
-                Math.Max(880, Math.Min(1280, workingArea.Width - 32)),
-                Math.Max(600, Math.Min(800, workingArea.Height - 32)));
-            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = ComputeInitialClientSize(GetPrimaryDpiScale());
             Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
 
             using (Icon applicationIcon = LoadApplicationIcon(new Size(32, 32)))
@@ -123,6 +123,7 @@ namespace T50LabelPrinter
             }
 
             BuildInterface();
+            ApplyDpiScaling();
             WireEvents();
             LabelDocument initialDocument = LabelDocument.CreateDefault();
             PaperDefaults paperDefaults;
@@ -165,6 +166,210 @@ namespace T50LabelPrinter
             }
             FormClosing += MainFormClosing;
             FormClosed += MainFormClosed;
+        }
+
+        // 界面全部按 96 DPI（100% 缩放）设计。WinForms 只有在显式给出设计基线
+        // （AutoScaleDimensions）之后才会按实际 DPI 放大布局；如果省略它，框架会把
+        // 运行时的 DPI 当成设计基线，缩放比例恒为 1，于是字体按 DPI 变大、控件尺寸
+        // 不变，界面在 150%/200% 缩放下会挤成一团。
+        // 注意顺序：必须先设置 AutoScaleDimensions 再设置 AutoScaleMode。否则设置
+        // AutoScaleMode 时会先用“空基线”（比例 1）完成一次自动缩放，之后即使补上
+        // 基线也不会再缩放。缩放必须在所有控件创建完成之后执行一次，否则之后加入
+        // 的控件不会被放大。
+        private void ApplyDpiScaling()
+        {
+            CaptureDpiSensitiveMetrics(this);
+            AutoScaleDimensions = new SizeF(96f, 96f);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            PerformAutoScale();
+            // 自动缩放实际使用的比例（Dpi 模式下 CurrentAutoScaleDimensions 等于当前 DPI）。
+            ApplyDpiSensitiveMetrics(Math.Max(1f, CurrentAutoScaleDimensions.Width / 96f));
+        }
+
+        // WinForms 的自动缩放不会处理 SplitContainer 的分隔位置和 DataGridView 的
+        // 行高/列宽。这些数值先按 96 DPI 记录成设计值，之后始终按“设计值 × DPI 倍数”
+        // 重新套用：既保证高 DPI 下左侧参数区不会被挤扁，也保证重复调用不会叠加缩放。
+        private void CaptureDpiSensitiveMetrics(Control root)
+        {
+            foreach (Control child in root.Controls)
+            {
+                SplitContainer split = child as SplitContainer;
+                if (split != null)
+                {
+                    int[] design =
+                    {
+                        split.Panel1MinSize,
+                        split.Panel2MinSize,
+                        split.SplitterDistance,
+                        split.SplitterWidth
+                    };
+                    SplitContainer captured = split;
+                    bool movedByUser = false;
+                    bool applying = false;
+                    Action<float> apply = factor =>
+                    {
+                        applying = true;
+                        try
+                        {
+                            ApplySplitContainerMetrics(captured, design, factor);
+                        }
+                        finally
+                        {
+                            applying = false;
+                        }
+                    };
+                    _dpiMetricAppliers.Add(apply);
+                    // 未选中的 Tab 页在首次显示之前尺寸仍是旧值，等尺寸变化后再套用一次；
+                    // 用户手动拖动过分隔条之后不再干预（程序化设置也会触发该事件，需排除）。
+                    split.SplitterMoved += (sender, args) =>
+                    {
+                        if (!applying)
+                        {
+                            movedByUser = true;
+                        }
+                    };
+                    split.SizeChanged += (sender, args) =>
+                    {
+                        if (!movedByUser)
+                        {
+                            apply(_appliedDpiFactor);
+                        }
+                    };
+                }
+
+                DataGridView grid = child as DataGridView;
+                if (grid != null)
+                {
+                    int rowHeight = grid.RowTemplate.Height;
+                    int headerHeight = grid.ColumnHeadersHeightSizeMode == DataGridViewColumnHeadersHeightSizeMode.AutoSize
+                        ? -1
+                        : grid.ColumnHeadersHeight;
+                    List<KeyValuePair<DataGridViewColumn, int>> columns = new List<KeyValuePair<DataGridViewColumn, int>>();
+                    foreach (DataGridViewColumn column in grid.Columns)
+                    {
+                        if (UsesExplicitColumnWidth(grid, column))
+                        {
+                            columns.Add(new KeyValuePair<DataGridViewColumn, int>(column, column.Width));
+                        }
+                    }
+                    DataGridView captured = grid;
+                    _dpiMetricAppliers.Add(factor =>
+                        ApplyDataGridViewMetrics(captured, rowHeight, headerHeight, columns, factor));
+                }
+
+                CaptureDpiSensitiveMetrics(child);
+            }
+        }
+
+        private void ApplyDpiSensitiveMetrics(float factor)
+        {
+            _appliedDpiFactor = Math.Max(1f, factor);
+            foreach (Action<float> apply in _dpiMetricAppliers)
+            {
+                apply(_appliedDpiFactor);
+            }
+        }
+
+        private static bool UsesExplicitColumnWidth(DataGridView grid, DataGridViewColumn column)
+        {
+            if (column.AutoSizeMode == DataGridViewAutoSizeColumnMode.NotSet)
+            {
+                return grid.AutoSizeColumnsMode == DataGridViewAutoSizeColumnsMode.None;
+            }
+            return column.AutoSizeMode == DataGridViewAutoSizeColumnMode.None;
+        }
+
+        private static void ApplySplitContainerMetrics(
+            SplitContainer split,
+            int[] design,
+            float factor)
+        {
+            try
+            {
+                split.Panel1MinSize = ScaleMetric(design[0], factor);
+                split.Panel2MinSize = ScaleMetric(design[1], factor);
+                split.SplitterWidth = Math.Max(1, ScaleMetric(design[3], factor));
+
+                int available = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+                int maximum = available - split.Panel2MinSize - split.SplitterWidth;
+                if (maximum >= split.Panel1MinSize)
+                {
+                    split.SplitterDistance = Math.Max(split.Panel1MinSize, Math.Min(ScaleMetric(design[2], factor), maximum));
+                }
+            }
+            catch (InvalidOperationException) { }
+            catch (ArgumentOutOfRangeException) { }
+        }
+
+        private static void ApplyDataGridViewMetrics(
+            DataGridView grid,
+            int rowHeight,
+            int headerHeight,
+            List<KeyValuePair<DataGridViewColumn, int>> columns,
+            float factor)
+        {
+            try
+            {
+                grid.RowTemplate.Height = ScaleMetric(rowHeight, factor);
+            }
+            catch (InvalidOperationException) { }
+            catch (ArgumentOutOfRangeException) { }
+
+            if (headerHeight > 0)
+            {
+                try
+                {
+                    grid.ColumnHeadersHeight = ScaleMetric(headerHeight, factor);
+                }
+                catch (InvalidOperationException) { }
+                catch (ArgumentOutOfRangeException) { }
+            }
+
+            foreach (KeyValuePair<DataGridViewColumn, int> entry in columns)
+            {
+                try
+                {
+                    entry.Key.Width = ScaleMetric(entry.Value, factor);
+                }
+                catch (InvalidOperationException) { }
+                catch (ArgumentOutOfRangeException) { }
+            }
+        }
+
+        private static int ScaleMetric(int value, float factor)
+        {
+            if (value <= 0)
+            {
+                return value;
+            }
+            return Math.Max(1, (int)Math.Round(value * factor));
+        }
+
+        private static float GetPrimaryDpiScale()
+        {
+            try
+            {
+                using (Graphics graphics = Graphics.FromHwnd(IntPtr.Zero))
+                {
+                    return Math.Max(1f, graphics.DpiX / 96f);
+                }
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException || exception is InvalidOperationException ||
+                exception is System.ComponentModel.Win32Exception)
+            {
+                return 1f;
+            }
+        }
+
+        private static Size ComputeInitialClientSize(float dpiScale)
+        {
+            Rectangle workingArea = Screen.PrimaryScreen.WorkingArea;
+            int logicalWidth = (int)Math.Round(workingArea.Width / dpiScale);
+            int logicalHeight = (int)Math.Round(workingArea.Height / dpiScale);
+            return new Size(
+                Math.Max(880, Math.Min(1280, logicalWidth - 32)),
+                Math.Max(600, Math.Min(800, logicalHeight - 32)));
         }
 
         private void MainFormClosing(object sender, FormClosingEventArgs args)
@@ -245,6 +450,7 @@ namespace T50LabelPrinter
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 116f));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             t50Page.Controls.Add(root);
 
             root.Controls.Add(CreateDevicePanel(), 0, 0);
@@ -315,6 +521,14 @@ namespace T50LabelPrinter
                 Text = "硕方t50pro打印上位机（by zlight106） — " +
                     Path.GetFileName(_startupScheduleFile);
             }
+        }
+
+        // 窗口第一次显示时再套用一次 DPI 相关尺寸：如果创建窗口时受屏幕大小限制
+        // （例如远程会话或小屏），分隔位置等数值会等到真实窗口尺寸确定后重新应用。
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            ApplyDpiSensitiveMetrics(Math.Max(1f, CurrentAutoScaleDimensions.Width / 96f));
         }
 
         protected override bool ProcessCmdKey(ref Message message, Keys keyData)
@@ -470,6 +684,7 @@ namespace T50LabelPrinter
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 104f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
             FlowLayoutPanel tools = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true };
             Button addText = new Button { Text = "+ 文字", Width = 78, Height = 29 };
@@ -567,6 +782,7 @@ namespace T50LabelPrinter
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 128f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             FlowLayoutPanel flow = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -615,6 +831,7 @@ namespace T50LabelPrinter
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
             FlowLayoutPanel tools = new FlowLayoutPanel
             {

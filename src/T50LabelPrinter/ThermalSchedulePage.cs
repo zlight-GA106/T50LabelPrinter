@@ -91,6 +91,7 @@ namespace T50LabelPrinter
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 82f));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             Controls.Add(root);
 
             root.Controls.Add(CreateDevicePanel(), 0, 0);
@@ -180,6 +181,7 @@ namespace T50LabelPrinter
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 252f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             layout.Controls.Add(CreateScheduleSettings(), 0, 0);
 
             FlowLayoutPanel tools = new FlowLayoutPanel
