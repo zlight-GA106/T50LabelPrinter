@@ -39,6 +39,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
@@ -76,6 +77,11 @@
     <Compile Include="SpreadsheetQueueImporter.cs" />
     <Compile Include="ThermalPrinterService.cs" />
     <Compile Include="ThermalScheduleModels.cs" />
+    <Compile Include="ThermalScheduleImage.cs" />
+    <Compile Include="ThermalScheduleRowOperations.cs" />
+    <Compile Include="ThermalSchedulePage.Objects.cs" />
+    <Compile Include="EasyUpdateClient.cs" />
+    <Compile Include="EasyUpdatePage.cs" />
     <Compile Include="ThermalSchedulePage.cs" />
     <Compile Include="ThermalSchedulePreview.cs" />
     <Compile Include="ThermalScheduleRenderer.cs" />
@@ -98,6 +104,11 @@
       <TargetPath>dragon.png</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\easyupdate.json">
+      <Link>easyupdate.json</Link>
+      <TargetPath>easyupdate.json</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="CopyDistributionFiles" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
@@ -111,6 +122,7 @@
       <DistributionFiles Include="$(TargetDir)zxing.dll" />
       <DistributionFiles Include="$(TargetDir)SevenZip.dll" />
       <DistributionFiles Include="$(TargetDir)dragon.png" />
+      <DistributionFiles Include="$(TargetDir)easyupdate.json" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\README.md" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\LICENSE" />
       <DistributionFiles Include="$(MSBuildProjectDirectory)\..\..\examples\T50打印队列示例.xlsx" />

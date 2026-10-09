@@ -44,6 +44,16 @@ namespace T50LabelPrinter
                 ConfigureGraphics(graphics);
                 graphics.Clear(Color.White);
                 DrawDocument(document, graphics, fonts, width);
+                foreach (ThermalScheduleImage image in document.Images)
+                {
+                    using (Bitmap picture = ImageAssetService.CreateMonochromeBitmap(image.ToLabelElement(),
+                        MillimetersToPixels(image.Width), MillimetersToPixels(image.Height)))
+                    {
+                        if (picture == null) throw new InvalidOperationException("无法读取图片：" + image.FileName);
+                        graphics.DrawImageUnscaled(picture, (int)Math.Round(image.X * (decimal)DotsPerMm),
+                            (int)Math.Round(image.Y * (decimal)DotsPerMm));
+                    }
+                }
             }
             return bitmap;
         }
@@ -87,7 +97,39 @@ namespace T50LabelPrinter
                 }
             }
             y += metrics.Margin + MillimetersToPixels(2m);
+            foreach (ThermalScheduleImage image in document.Images)
+                y = Math.Max(y, (float)(image.Y + image.Height) * DotsPerMm);
             return Math.Max(MillimetersToPixels(40m), (int)Math.Ceiling(y));
+        }
+
+        public static IList<RectangleF> GetRowBounds(ThermalScheduleDocument source)
+        {
+            ThermalScheduleDocument document = source.DeepClone();
+            LayoutMetrics metrics = LayoutMetrics.Create(document, MillimetersToPixels(58m));
+            List<RectangleF> result = new List<RectangleF>();
+            using (Bitmap bitmap = new Bitmap(1, 1))
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            using (ScheduleFonts fonts = ScheduleFonts.Create(document))
+            {
+                ConfigureGraphics(graphics);
+                float y = metrics.Margin;
+                if (!string.IsNullOrWhiteSpace(document.Title))
+                    y += MeasureSingleLineHeight(document.Title, graphics, fonts.Title, metrics.ContentWidth) + MillimetersToPixels(1.2m);
+                if (document.ShowDate)
+                    y += MeasureSingleLineHeight(document.Date.ToString("yyyy-MM-dd  dddd", CultureInfo.CurrentCulture),
+                        graphics, fonts.Date, metrics.ContentWidth) + MillimetersToPixels(0.8m);
+                y += MillimetersToPixels(0.8m);
+                foreach (ThermalScheduleItem item in GetVisibleItems(document))
+                {
+                    using (Font font = fonts.CreateItemFont(document, item))
+                    {
+                        float height = MeasureRowHeight(document, item, graphics, font, metrics);
+                        result.Add(new RectangleF(metrics.Margin, y, metrics.ContentWidth, height));
+                        y += height;
+                    }
+                }
+            }
+            return result;
         }
 
         private static void DrawDocument(
@@ -131,9 +173,11 @@ namespace T50LabelPrinter
                         float contentY = y + metrics.RowPadding;
                         float x = metrics.Margin;
 
-                        if (item.Kind == ThermalScheduleItemKind.Countdown)
+                        if (item.Kind != ThermalScheduleItemKind.Schedule)
                         {
-                            graphics.DrawString(item.GetCountdownText(document.Date), itemFont, Brushes.Black,
+                            string text = item.Kind == ThermalScheduleItemKind.Countdown
+                                ? item.GetCountdownText(document.Date) : item.GetDisplayContent(DateTime.Today);
+                            graphics.DrawString(text, itemFont, Brushes.Black,
                                 new RectangleF(metrics.Margin, contentY, metrics.ContentWidth,
                                     rowHeight - metrics.RowPadding * 2f), left);
                         }
@@ -164,7 +208,7 @@ namespace T50LabelPrinter
 
                             if (document.ShowContent)
                             {
-                                graphics.DrawString(string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content,
+                                graphics.DrawString(item.GetDisplayContent(DateTime.Today),
                                     itemFont, Brushes.Black,
                                     new RectangleF(x, contentY, metrics.ContentTextWidth,
                                         rowHeight - metrics.RowPadding * 2f), left);
@@ -180,12 +224,7 @@ namespace T50LabelPrinter
 
         private static IList<ThermalScheduleItem> GetVisibleItems(ThermalScheduleDocument document)
         {
-            List<ThermalScheduleItem> items = document.Items
-                .Where(item => item != null &&
-                    (item.Kind == ThermalScheduleItemKind.Countdown ||
-                     !string.IsNullOrWhiteSpace(item.Time) ||
-                     !string.IsNullOrWhiteSpace(item.Content)))
-                .ToList();
+            List<ThermalScheduleItem> items = document.Items.ToList();
             if (items.Count == 0)
             {
                 items.Add(new ThermalScheduleItem { Content = "暂无日程" });
@@ -200,11 +239,11 @@ namespace T50LabelPrinter
             Font font,
             LayoutMetrics metrics)
         {
-            bool countdown = item.Kind == ThermalScheduleItemKind.Countdown;
+            bool countdown = item.Kind != ThermalScheduleItemKind.Schedule;
             string content = countdown
-                ? item.GetCountdownText(document.Date)
+                ? (item.Kind == ThermalScheduleItemKind.Countdown ? item.GetCountdownText(document.Date) : item.GetDisplayContent(DateTime.Today))
                 : (document.ShowContent
-                    ? (string.IsNullOrWhiteSpace(item.Content) ? "（空日程）" : item.Content)
+                    ? item.GetDisplayContent(DateTime.Today)
                     : (document.ShowTime ? item.Time ?? string.Empty : string.Empty));
             float availableWidth = countdown
                 ? metrics.ContentWidth
@@ -216,7 +255,11 @@ namespace T50LabelPrinter
                 SizeF measured = graphics.MeasureString(content, font,
                     new SizeF(availableWidth, MillimetersToPixels(500m)), format);
                 float textHeight = Math.Max(font.GetHeight(graphics), measured.Height);
-                return Math.Max(metrics.MinimumRowHeight, textHeight + metrics.RowPadding * 2f + 4f);
+                float height = Math.Max(metrics.MinimumRowHeight, textHeight + metrics.RowPadding * 2f + 4f);
+                // A merged row retains the combined height even after text is entered.
+                float emptyHeight = Math.Max(metrics.MinimumRowHeight, font.GetHeight(graphics) + metrics.RowPadding * 2f + 4f);
+                return Math.Max(height, item.MergedHeightMm > 0m ? (float)item.MergedHeightMm * DotsPerMm :
+                    emptyHeight * Math.Max(1, item.RowSpan));
             }
         }
 

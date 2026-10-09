@@ -90,6 +90,7 @@ namespace T50LabelPrinter
                 using (MemoryStream stream = new MemoryStream(bytes, false))
                 using (Image source = Image.FromStream(stream, true, true))
                 {
+                    if ((long)source.Width * source.Height > MaximumPixels) return false;
                     bitmap = new Bitmap(source.Width, source.Height, PixelFormat.Format24bppRgb);
                     using (Graphics graphics = Graphics.FromImage(bitmap))
                     {

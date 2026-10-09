@@ -252,8 +252,14 @@ namespace T50LabelPrinter
                         }
                     }
                     DataGridView captured = grid;
+                    Padding cellPadding = grid.DefaultCellStyle.Padding;
                     _dpiMetricAppliers.Add(factor =>
-                        ApplyDataGridViewMetrics(captured, rowHeight, headerHeight, columns, factor));
+                    {
+                        captured.DefaultCellStyle.Padding = new Padding(
+                            ScaleMetric(cellPadding.Left, factor), ScaleMetric(cellPadding.Top, factor),
+                            ScaleMetric(cellPadding.Right, factor), ScaleMetric(cellPadding.Bottom, factor));
+                        ApplyDataGridViewMetrics(captured, rowHeight, headerHeight, columns, factor);
+                    });
                 }
 
                 CaptureDpiSensitiveMetrics(child);
@@ -321,7 +327,10 @@ namespace T50LabelPrinter
         {
             try
             {
-                grid.RowTemplate.Height = ScaleMetric(rowHeight, factor);
+                grid.RowTemplate.Height = Math.Max(grid.RowTemplate.MinimumHeight,
+                    Math.Max(ScaleMetric(rowHeight, factor), grid.Font.Height + grid.DefaultCellStyle.Padding.Vertical + 2));
+                if (grid.AutoSizeRowsMode == DataGridViewAutoSizeRowsMode.None)
+                    foreach (DataGridViewRow row in grid.Rows) row.Height = grid.RowTemplate.Height;
             }
             catch (InvalidOperationException) { }
             catch (ArgumentOutOfRangeException) { }
@@ -448,6 +457,9 @@ namespace T50LabelPrinter
             _scheduleDevicePage = new TabPage("58mm 日程打印") { Padding = new Padding(0) };
             _devicePages.TabPages.Add(t50Page);
             _devicePages.TabPages.Add(_scheduleDevicePage);
+            TabPage updatePage = new TabPage("Easyupdate") { Padding = new Padding(0) };
+            updatePage.Controls.Add(new EasyUpdatePage { Dock = DockStyle.Fill });
+            _devicePages.TabPages.Add(updatePage);
             Controls.Add(_devicePages);
 
             TableLayoutPanel root = new TableLayoutPanel

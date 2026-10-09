@@ -12,7 +12,10 @@ namespace T50LabelPrinter
         Schedule = 0,
 
         [EnumMember]
-        Countdown = 1
+        Countdown = 1,
+
+        [EnumMember]
+        Date = 2
     }
 
     [DataContract]
@@ -36,6 +39,27 @@ namespace T50LabelPrinter
         public ThermalScheduleItemKind Kind { get; set; }
         [DataMember(Order = 9, EmitDefaultValue = false)]
         public DateTime TargetDate { get; set; }
+
+        [DataMember(Order = 10)]
+        public int RowSpan { get; set; }
+        [DataMember(Order = 11, EmitDefaultValue = false)]
+        public decimal MergedHeightMm { get; set; }
+
+        public const string DateToken = "{日期}";
+
+        public string GetDisplayContent(DateTime today)
+        {
+            string text = Content ?? string.Empty;
+            if (Kind == ThermalScheduleItemKind.Date && string.IsNullOrWhiteSpace(text))
+                text = DateToken;
+            return text.Replace(DateToken, today.ToString("yyyy-MM-dd"));
+        }
+
+        public bool IsEmptySchedule
+        {
+            get { return Kind == ThermalScheduleItemKind.Schedule && !Completed &&
+                string.IsNullOrWhiteSpace(Time) && string.IsNullOrWhiteSpace(Content); }
+        }
 
         public string GetCountdownText(DateTime baseDate)
         {
@@ -64,7 +88,9 @@ namespace T50LabelPrinter
                 Bold = Bold,
                 Italic = Italic,
                 Kind = Kind,
-                TargetDate = TargetDate
+                TargetDate = TargetDate,
+                RowSpan = RowSpan,
+                MergedHeightMm = MergedHeightMm
             };
         }
     }
@@ -118,6 +144,9 @@ namespace T50LabelPrinter
 
         [DataMember(Order = 20, EmitDefaultValue = false)]
         public DateTime CountdownDate { get; set; }
+
+        [DataMember(Order = 21)]
+        public List<ThermalScheduleImage> Images { get; set; }
 
         public static ThermalScheduleDocument CreateDefault()
         {
@@ -205,10 +234,8 @@ namespace T50LabelPrinter
             CountdownName = null;
             CountdownDate = default(DateTime);
 
-            if (Items.Count > 200)
-            {
-                Items.RemoveRange(200, Items.Count - 200);
-            }
+            if (Items.Sum(item => (long)Math.Max(1, item.RowSpan)) > 200)
+                throw new InvalidOperationException("日程最多支持 200 行（包含合并的行）。");
             foreach (ThermalScheduleItem item in Items)
             {
                 item.Time = Limit((item.Time ?? string.Empty).Trim(), 20);
@@ -219,7 +246,8 @@ namespace T50LabelPrinter
                     item.FontSizeMm = Math.Max(1.8m, Math.Min(8m, item.FontSizeMm));
                 }
                 if (item.Kind != ThermalScheduleItemKind.Schedule &&
-                    item.Kind != ThermalScheduleItemKind.Countdown)
+                    item.Kind != ThermalScheduleItemKind.Countdown &&
+                    item.Kind != ThermalScheduleItemKind.Date)
                 {
                     item.Kind = ThermalScheduleItemKind.Schedule;
                 }
@@ -240,7 +268,14 @@ namespace T50LabelPrinter
                     // 避免 DateTime.MinValue 在本地时区转 UTC 时发生下溢。
                     item.TargetDate = default(DateTime);
                 }
+                item.RowSpan = item.Kind == ThermalScheduleItemKind.Schedule
+                    ? Math.Max(1, Math.Min(200, item.RowSpan)) : 1;
+                item.MergedHeightMm = item.RowSpan > 1 ? Math.Max(0m, Math.Min(1000m, item.MergedHeightMm)) : 0m;
             }
+            if (Images == null) Images = new List<ThermalScheduleImage>();
+            Images.RemoveAll(image => image == null);
+            if (Images.Count > 30) throw new InvalidOperationException("最多支持 30 个图片对象。");
+            foreach (ThermalScheduleImage image in Images) image.Normalize();
         }
 
         [Obsolete("请使用 ThermalScheduleItem.GetCountdownText(DateTime)。")]
@@ -286,7 +321,9 @@ namespace T50LabelPrinter
                 ShowCountdown = ShowCountdown,
                 CountdownName = CountdownName,
                 CountdownDate = CountdownDate,
-                Items = new List<ThermalScheduleItem>()
+                Items = new List<ThermalScheduleItem>(),
+                Images = Images == null ? new List<ThermalScheduleImage>() :
+                    Images.Select(image => image.DeepClone()).ToList()
             };
             if (Items != null)
             {

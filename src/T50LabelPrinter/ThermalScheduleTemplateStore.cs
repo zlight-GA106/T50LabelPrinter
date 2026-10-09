@@ -9,8 +9,8 @@ namespace T50LabelPrinter
     {
         public const string FileExtension = "t58schedule";
         private const string FormatName = "T50LabelPrinter.ThermalSchedule";
-        private const int CurrentVersion = 1;
-        private const long MaximumTemplateBytes = 4L * 1024L * 1024L;
+        private const int CurrentVersion = 2;
+        private const long MaximumTemplateBytes = 64L * 1024L * 1024L;
 
         private static readonly DataContractJsonSerializer Serializer =
             new DataContractJsonSerializer(typeof(ThermalScheduleTemplateEnvelope));
@@ -67,11 +67,24 @@ namespace T50LabelPrinter
             {
                 Directory.CreateDirectory(directory);
             }
-            using (FileStream stream = new FileStream(
-                fileName, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (MemoryStream buffer = new MemoryStream())
             {
-                Serializer.WriteObject(stream, envelope);
-                stream.Flush(true);
+                Serializer.WriteObject(buffer, envelope);
+                if (buffer.Length > MaximumTemplateBytes)
+                    throw new InvalidDataException("日程模板超过 64 MB，请减少图片或降低分辨率。");
+                string temporary = fileName + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    using (FileStream stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        buffer.Position = 0;
+                        buffer.CopyTo(stream);
+                        stream.Flush(true);
+                    }
+                    if (File.Exists(fileName)) File.Replace(temporary, fileName, null);
+                    else File.Move(temporary, fileName);
+                }
+                finally { if (File.Exists(temporary)) File.Delete(temporary); }
             }
         }
 
@@ -88,13 +101,16 @@ namespace T50LabelPrinter
             }
             if (file.Length <= 0 || file.Length > MaximumTemplateBytes)
             {
-                throw new InvalidDataException("日程模板为空或超过 4 MB 限制。");
+                throw new InvalidDataException("日程模板为空或超过 64 MB 限制。");
             }
 
             ThermalScheduleTemplateEnvelope envelope;
             using (FileStream stream = new FileStream(
                 fileName, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
+                byte[] prefix = new byte[3];
+                int read = stream.Read(prefix, 0, prefix.Length);
+                stream.Position = read == 3 && prefix[0] == 0xef && prefix[1] == 0xbb && prefix[2] == 0xbf ? 3 : 0;
                 envelope = Serializer.ReadObject(stream) as ThermalScheduleTemplateEnvelope;
             }
             if (envelope == null ||

@@ -9,10 +9,11 @@ using System.Windows.Forms;
 
 namespace T50LabelPrinter
 {
-    public sealed class ThermalSchedulePage : UserControl
+    public sealed partial class ThermalSchedulePage : UserControl
     {
         private const string ScheduleTypeText = "日程";
         private const string CountdownTypeText = "目标日";
+        private const string DateTypeText = "日期";
 
         private readonly ThermalPrinterService _printerService = new ThermalPrinterService();
         private readonly ThermalScheduleTemplateStore _templateStore = new ThermalScheduleTemplateStore();
@@ -179,7 +180,7 @@ namespace T50LabelPrinter
                 Padding = new Padding(8)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 252f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 118f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             layout.Controls.Add(CreateScheduleSettings(), 0, 0);
@@ -193,6 +194,9 @@ namespace T50LabelPrinter
             Button addTitle = CreateToolButton("+ 标题", 64);
             Button add = CreateToolButton("+ 日程", 68);
             Button addCountdown = CreateToolButton("+ 目标日", 78);
+            Button addDate = CreateToolButton("+ 日期", 68);
+            Button addEmpty = CreateToolButton("+ 空行", 68);
+            Button importImage = CreateToolButton("导入图片…", 90);
             Button remove = CreateToolButton("删除", 52);
             Button up = CreateToolButton("上移", 50);
             Button down = CreateToolButton("下移", 50);
@@ -204,6 +208,9 @@ namespace T50LabelPrinter
             addTitle.Click += (sender, args) => EditTitle();
             add.Click += (sender, args) => AddScheduleItem();
             addCountdown.Click += (sender, args) => AddCountdownItem();
+            addDate.Click += (sender, args) => AddDateItem();
+            addEmpty.Click += (sender, args) => AddEmptyItem();
+            importImage.Click += (sender, args) => ImportScheduleImage();
             remove.Click += (sender, args) => RemoveSelectedItem();
             up.Click += (sender, args) => MoveSelectedItem(-1);
             down.Click += (sender, args) => MoveSelectedItem(1);
@@ -215,6 +222,9 @@ namespace T50LabelPrinter
             tools.Controls.Add(addTitle);
             tools.Controls.Add(add);
             tools.Controls.Add(addCountdown);
+            tools.Controls.Add(addDate);
+            tools.Controls.Add(addEmpty);
+            tools.Controls.Add(importImage);
             tools.Controls.Add(remove);
             tools.Controls.Add(up);
             tools.Controls.Add(down);
@@ -236,9 +246,16 @@ namespace T50LabelPrinter
                 BorderStyle = BorderStyle.Fixed3D,
                 RowHeadersVisible = true,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false,
+                MultiSelect = true,
+                AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None,
                 EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2
             };
+            _items.RowTemplate.Height = 34;
+            _items.DefaultCellStyle.Padding = new Padding(4, 6, 4, 6);
+            _items.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            _items.FontChanged += (sender, args) => UpdateScheduleGridSpacing();
+            _items.RowsAdded += (sender, args) => UpdateScheduleGridSpacing();
+            _items.DpiChangedAfterParent += (sender, args) => UpdateScheduleGridSpacing();
             DataGridViewComboBoxColumn typeColumn = new DataGridViewComboBoxColumn
             {
                 Name = "Type",
@@ -247,7 +264,7 @@ namespace T50LabelPrinter
                 FlatStyle = FlatStyle.System,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             };
-            typeColumn.Items.AddRange(ScheduleTypeText, CountdownTypeText);
+            typeColumn.Items.AddRange(ScheduleTypeText, CountdownTypeText, DateTypeText);
             _items.Columns.Add(typeColumn);
             _items.Columns.Add(new DataGridViewCheckBoxColumn
             {
@@ -464,6 +481,7 @@ namespace T50LabelPrinter
             menu.Items.Add(_scheduleFontSizeMenu);
             menu.Items.Add(_scheduleBoldMenu);
             menu.Items.Add(_scheduleItalicMenu);
+            AddObjectContextMenu(menu);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(addDataMatrix);
             menu.Items.Add(addPdf417);
@@ -499,6 +517,21 @@ namespace T50LabelPrinter
             _items.CellValueChanged += ItemsCellValueChanged;
             _items.CellDoubleClick += ItemsCellDoubleClick;
             _items.CellMouseDown += ItemsCellMouseDown;
+            _items.SelectionChanged += (sender, args) => _preview.SetSelectedRows(GetSelectedRowIndices());
+            _preview.RowSelected += SelectPreviewRow;
+            _preview.ImageChanged += ScheduleChanged;
+            _preview.DeleteImageRequested += (sender, args) => DeleteSelectedImage();
+            _preview.EditImageRequested += (sender, args) => EditSelectedImage();
+            _dayTimer.Tick += (sender, args) =>
+            {
+                if (_lastPreviewDate != DateTime.Today && !_items.IsCurrentCellInEditMode)
+                {
+                    _lastPreviewDate = DateTime.Today;
+                    if (_autoDate.Checked) _date.Value = DateTime.Today;
+                    UpdatePreview();
+                }
+            };
+            _dayTimer.Start();
             _items.CurrentCellDirtyStateChanged += (sender, args) =>
             {
                 if (_items.IsCurrentCellDirty &&
@@ -562,11 +595,12 @@ namespace T50LabelPrinter
             _contextColumn = args.ColumnIndex >= 0 ? _items.Columns[args.ColumnIndex] : null;
             if (args.RowIndex >= 0)
             {
-                _items.ClearSelection();
-                _items.Rows[args.RowIndex].Selected = true;
-                if (args.ColumnIndex >= 0)
+                if (!_items.Rows[args.RowIndex].Selected)
                 {
-                    _items.CurrentCell = _items.Rows[args.RowIndex].Cells[args.ColumnIndex];
+                    _items.ClearSelection();
+                    if (args.ColumnIndex >= 0)
+                        _items.CurrentCell = _items.Rows[args.RowIndex].Cells[args.ColumnIndex];
+                    _items.Rows[args.RowIndex].Selected = true;
                 }
             }
         }
@@ -579,15 +613,23 @@ namespace T50LabelPrinter
             }
             _contextFromPreview = true;
             Rectangle paper = _preview.ReceiptBounds;
-            _contextTitle = paper.Contains(args.Location) &&
-                args.Y - paper.Top < MillimetersToPreviewPixels(18m);
+            int hitRow = _preview.HitTestRow(args.Location);
+            _contextTitle = _preview.SelectedImage == null && paper.Contains(args.Location) &&
+                hitRow < 0 && args.Y - paper.Top < MillimetersToPreviewPixels(18m);
+            if (_preview.SelectedImage != null)
+            {
+                _contextTitle = false;
+                _contextRowIndex = -1;
+                _contextColumn = null;
+                return;
+            }
             if (!paper.Contains(args.Location) || _contextTitle)
             {
                 _contextRowIndex = -1;
                 _contextColumn = null;
                 return;
             }
-            _contextRowIndex = _items.CurrentRow == null ? -1 : _items.CurrentRow.Index;
+            _contextRowIndex = hitRow >= 0 && hitRow < _items.Rows.Count ? hitRow : -1;
             _contextColumn = _showContentColumn
                 ? _items.Columns["Content"]
                 : (_showTimeColumn ? _items.Columns["Time"] : null);
@@ -599,9 +641,17 @@ namespace T50LabelPrinter
             {
                 return;
             }
+            if (_preview.SelectedImage != null) return;
             Rectangle paper = _preview.ReceiptBounds;
             if (!paper.Contains(args.Location))
             {
+                return;
+            }
+            int hitRow = _preview.HitTestRow(args.Location);
+            if (hitRow >= 0 && hitRow < _items.Rows.Count)
+            {
+                _items.CurrentCell = _items.Rows[hitRow].Cells["Type"];
+                EditSelectedScheduleContent();
                 return;
             }
             if (args.Y - paper.Top < MillimetersToPreviewPixels(18m))
@@ -609,24 +659,10 @@ namespace T50LabelPrinter
                 EditTitle();
                 return;
             }
-            EditSelectedScheduleContent();
         }
 
         private void ScheduleContextMenuOpening(object sender, System.ComponentModel.CancelEventArgs args)
         {
-            if (_contextFromPreview && !_contextTitle && _contextRowIndex < 0 && _items.CurrentRow != null)
-            {
-                Rectangle paper = _preview.ReceiptBounds;
-                Point point = _preview.PointToClient(Cursor.Position);
-                if (paper.Contains(point) && point.Y - paper.Top >= MillimetersToPreviewPixels(18m))
-                {
-                    _contextRowIndex = _items.CurrentRow.Index;
-                    _contextColumn = _showContentColumn
-                        ? _items.Columns["Content"]
-                        : (_showTimeColumn ? _items.Columns["Time"] : null);
-                }
-            }
-
             DataGridViewRow row = GetContextRow();
             bool textSelected = _contextTitle || (row != null && IsTextColumn(_contextColumn));
             bool hiddenColumns = _items.Columns.Cast<DataGridViewColumn>().Any(column => !column.Visible);
@@ -665,6 +701,7 @@ namespace T50LabelPrinter
                 _scheduleFontSizeCombo.Text = size.ToString("0.#", CultureInfo.CurrentCulture);
             }
             _loadingScheduleContextMenu = false;
+            UpdateObjectContextMenu();
         }
 
         private void ScheduleContextFontChanged(object sender, EventArgs args)
@@ -764,6 +801,7 @@ namespace T50LabelPrinter
 
         private void DeleteContextObject()
         {
+            if (_contextFromPreview && _preview.SelectedImage != null) { DeleteSelectedImage(); return; }
             if (_contextTitle)
             {
                 _title.Clear();
@@ -1083,6 +1121,8 @@ namespace T50LabelPrinter
             SetNumeric(_rowSpacing, document.RowSpacingMm);
             SetNumeric(_copies, document.Copies);
             _items.Rows.Clear();
+            _images = document.Images.Select(image => image.DeepClone()).ToList();
+            _preview.SelectImage(null);
             foreach (ThermalScheduleItem item in document.Items)
             {
                 int rowIndex = _items.Rows.Add(
@@ -1127,7 +1167,8 @@ namespace T50LabelPrinter
                 MarginMm = _margin.Value,
                 RowSpacingMm = _rowSpacing.Value,
                 Copies = Decimal.ToInt32(_copies.Value),
-                Items = new List<ThermalScheduleItem>()
+                Items = new List<ThermalScheduleItem>(),
+                Images = _images
             };
             foreach (DataGridViewRow row in _items.Rows)
             {
@@ -1264,6 +1305,7 @@ namespace T50LabelPrinter
 
         private void AddScheduleItem()
         {
+            if (!CanAddRow()) return;
             int rowIndex = _items.Rows.Add(
                 ScheduleTypeText,
                 false,
@@ -1284,6 +1326,7 @@ namespace T50LabelPrinter
 
         private void AddCountdownItem()
         {
+            if (!CanAddRow()) return;
             DateTime targetDate = DateTime.Today.AddDays(7);
             int rowIndex = _items.Rows.Add(
                 CountdownTypeText,
@@ -1308,12 +1351,13 @@ namespace T50LabelPrinter
 
         private void RemoveSelectedItem()
         {
-            if (_items.CurrentRow == null)
+            if (_printing || _items.SelectedRows.Count == 0)
             {
                 return;
             }
-            int index = _items.CurrentRow.Index;
-            _items.Rows.RemoveAt(index);
+            int[] indices = GetSelectedRowIndices();
+            int index = indices[0];
+            foreach (int selected in indices.OrderByDescending(value => value)) _items.Rows.RemoveAt(selected);
             if (_items.Rows.Count > 0)
             {
                 int next = Math.Min(index, _items.Rows.Count - 1);
@@ -1413,6 +1457,7 @@ namespace T50LabelPrinter
 
         private static string GetItemKindText(ThermalScheduleItemKind kind)
         {
+            if (kind == ThermalScheduleItemKind.Date) return DateTypeText;
             return kind == ThermalScheduleItemKind.Countdown
                 ? CountdownTypeText
                 : ScheduleTypeText;
@@ -1420,6 +1465,7 @@ namespace T50LabelPrinter
 
         private static ThermalScheduleItemKind ParseItemKind(object value)
         {
+            if (string.Equals(Convert.ToString(value), DateTypeText, StringComparison.Ordinal)) return ThermalScheduleItemKind.Date;
             return string.Equals(Convert.ToString(value), CountdownTypeText, StringComparison.Ordinal)
                 ? ThermalScheduleItemKind.Countdown
                 : ThermalScheduleItemKind.Schedule;
@@ -1451,6 +1497,11 @@ namespace T50LabelPrinter
             }
             bool countdown = ParseItemKind(row.Cells["Type"].Value) ==
                 ThermalScheduleItemKind.Countdown;
+            bool special = ParseItemKind(row.Cells["Type"].Value) != ThermalScheduleItemKind.Schedule;
+            int span = Math.Max(1, GetRowMetadata(row).RowSpan);
+            row.HeaderCell.Value = span > 1 ? "×" + span : string.Empty;
+            row.HeaderCell.ToolTipText = span > 1 ? "已合并 " + span + " 行；清空后可右键拆分" : string.Empty;
+            SetRowCellReadOnly(row.Cells["Type"], span > 1);
             if (countdown && string.IsNullOrWhiteSpace(Convert.ToString(row.Cells["TargetDate"].Value)))
             {
                 ThermalScheduleItem metadata = GetRowMetadata(row);
@@ -1460,9 +1511,25 @@ namespace T50LabelPrinter
                 row.Cells["TargetDate"].Value = target.ToString(
                     "yyyy-MM-dd", CultureInfo.InvariantCulture);
             }
-            SetRowCellReadOnly(row.Cells["Completed"], countdown);
-            SetRowCellReadOnly(row.Cells["Time"], countdown);
+            SetRowCellReadOnly(row.Cells["Completed"], special);
+            SetRowCellReadOnly(row.Cells["Time"], special);
             SetRowCellReadOnly(row.Cells["TargetDate"], !countdown);
+        }
+
+        private void UpdateScheduleGridSpacing()
+        {
+            float factor = Math.Max(1f, _items.DeviceDpi / 96f);
+            int padding = (int)Math.Ceiling(6 * factor);
+            int minimum = Math.Max((int)Math.Ceiling(34 * factor), _items.Font.Height + padding * 2 + 2);
+            _items.DefaultCellStyle.Padding = new Padding((int)Math.Ceiling(4 * factor), padding,
+                (int)Math.Ceiling(4 * factor), padding);
+            _items.RowTemplate.MinimumHeight = minimum;
+            _items.RowTemplate.Height = minimum;
+            foreach (DataGridViewRow row in _items.Rows)
+            {
+                row.MinimumHeight = minimum;
+                row.Height = minimum;
+            }
         }
 
         private static void SetRowCellReadOnly(DataGridViewCell cell, bool readOnly)
@@ -1539,6 +1606,7 @@ namespace T50LabelPrinter
             _rowSpacing.Enabled = enabled;
             _copies.Enabled = enabled;
             _items.Enabled = enabled;
+            _preview.EditingEnabled = enabled;
             _printButton.Enabled = enabled;
             if (enabled)
             {
@@ -1575,6 +1643,7 @@ namespace T50LabelPrinter
             {
                 _previewTimer.Stop();
                 _previewTimer.Dispose();
+                _dayTimer.Dispose();
             }
             base.Dispose(disposing);
         }
